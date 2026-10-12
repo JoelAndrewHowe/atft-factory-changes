@@ -16,6 +16,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Remove="Doubles/**/*.cs" />
+    <ProjectReference Include="../src/Factory.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="Doubles/AgentDouble.csproj" ReferenceOutputAssembly="false" />
     <ReqnrollFeatureFile Include="../spec/features/*.feature" Link="Features/%(Filename)%(Extension)" />
     <None Update="reqnroll.json" CopyToOutputDirectory="PreserveNewest" />
     <Using Include="Reqnroll" />

@@ -1,0 +1,437 @@
+using System.Diagnostics;
+using System.Text.Json;
+
+namespace Factory.Tests;
+
+[Binding]
+public sealed class FactorySteps
+{
+    private string workspace = null!, repo = null!, target = null!, seed = null!;
+    private string? harness;
+    private bool includeSeed = true, includeTarget = true;
+    private string baseline = "", unrelated = "";
+    private Result result = new(0, "", "");
+    private readonly Dictionary<string, string> environment = new();
+    private readonly Dictionary<string, string> snapshots = new();
+    private static string FactoryRoot => Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../.."));
+    private static string Dotnet => Environment.GetEnvironmentVariable("DOTNET_HOST_PATH")
+        ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dotnet", "dotnet");
+    private record Result(int Code, string Out, string Error);
+
+    private Result Run(string command, string cwd, params string[] args)
+    {
+        var info = new ProcessStartInfo(command) { WorkingDirectory = cwd, RedirectStandardOutput = true,
+            RedirectStandardError = true, UseShellExecute = false };
+        foreach (var arg in args) info.ArgumentList.Add(arg);
+        foreach (var pair in environment) info.Environment[pair.Key] = pair.Value;
+        using var process = Process.Start(info)!;
+        var output = process.StandardOutput.ReadToEndAsync();
+        var error = process.StandardError.ReadToEndAsync();
+        if (!process.WaitForExit(30_000))
+        {
+            process.Kill(entireProcessTree: true);
+            process.WaitForExit();
+            Assert.Fail($"{command} timed out");
+        }
+        return new(process.ExitCode, output.GetAwaiter().GetResult(), error.GetAwaiter().GetResult());
+    }
+
+    private string Git(params string[] args) => GitAt(repo, args);
+    private string GitAt(string cwd, params string[] args)
+    {
+        var git = Run("git", cwd, args);
+        Assert.That(git.Code, Is.Zero, git.Error);
+        return git.Out.Trim();
+    }
+
+    [Given("a copy of the factory")]
+    public void CopyFactory()
+    {
+        workspace = Path.Combine(Path.GetTempPath(), "factory-test-" + Guid.NewGuid());
+        repo = Path.Combine(workspace, "repo");
+        Directory.CreateDirectory(Path.Combine(repo, "factory"));
+        // Only the compiled factory itself is copied, not specs, bindings or dependencies.
+        foreach (var file in Directory.GetFiles(Path.Combine(FactoryRoot, "src/bin/Debug/net8.0"), "Factory.*"))
+            File.Copy(file, Path.Combine(repo, "factory", Path.GetFileName(file)));
+        environment["GIT_CONFIG_GLOBAL"] = Path.Combine(workspace, "gitconfig");
+        environment["GIT_CONFIG_NOSYSTEM"] = "1";
+        File.WriteAllText(environment["GIT_CONFIG_GLOBAL"], "[user]\n name = Factory Tests\n email = factory@example.test\n[commit]\n gpgsign = false\n");
+        Git("init", "-q");
+        Git("add", "factory");
+        Git("commit", "-qm", "Initial factory");
+        baseline = Git("rev-parse", "HEAD");
+    }
+
+    [Given("a new target")]
+    public void NewTarget()
+    {
+        target = Path.Combine(repo, "output");
+        Directory.CreateDirectory(target);
+    }
+
+    [Given("a seed describing a game of Tetris")]
+    public void Seed()
+    {
+        seed = Path.Combine(workspace, "seed with spaces.md");
+        File.WriteAllText(seed, "Build a terminal game of Tetris. Start with npm start. Fit within 24 rows.");
+    }
+
+    [Given("the factory has staged and unstaged changes")]
+    public void UnrelatedChanges()
+    {
+        File.WriteAllText(Path.Combine(repo, "unrelated.txt"), "staged\n");
+        Git("add", "unrelated.txt");
+        File.AppendAllText(Path.Combine(repo, "unrelated.txt"), "unstaged\n");
+        File.WriteAllText(Path.Combine(repo, "untracked.txt"), "leave me alone");
+        // Changing a factory file must not cause it to enter a generated-work commit.
+        File.AppendAllText(Path.Combine(repo, "factory/Factory.runtimeconfig.json"), "\n");
+        unrelated = UnrelatedSnapshot();
+    }
+
+    private string UnrelatedSnapshot() => Git("diff", "--", "factory", "unrelated.txt")
+        + Git("diff", "--cached", "--", "factory", "unrelated.txt")
+        + Git("status", "--porcelain", "--", "factory", "unrelated.txt", "untracked.txt")
+        + File.ReadAllText(Path.Combine(repo, "untracked.txt"));
+
+    [Given("the agent plans the tasks alpha and beta, and does one task a pass")]
+    public void Agent()
+    {
+        var bin = Path.Combine(workspace, "agents");
+        Directory.CreateDirectory(bin);
+        foreach (var name in new[] { "pi", "chosen-agent" })
+        {
+            var file = Path.Combine(bin, name);
+            var assembly = Path.Combine(FactoryRoot, "tests/Doubles/bin/Debug/net8.0/AgentDouble.dll");
+            static string Quote(string value) => "'" + value.Replace("'", "'\\''") + "'";
+            File.WriteAllText(file, $"#!/bin/sh\nexec {Quote(Dotnet)} {Quote(assembly)} {Quote(name)} \"$@\"\n");
+            if (OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("The test launchers require Bash on Unix.");
+            File.SetUnixFileMode(file, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+        harness = Path.Combine(bin, "chosen-agent");
+        environment["PATH"] = bin + Path.PathSeparator + Environment.GetEnvironmentVariable("PATH");
+        environment["DOUBLE_WORKSPACE"] = workspace;
+    }
+
+    [Given("the target folder does not exist")]
+    public void MissingTarget() => Directory.Delete(target);
+
+    [Given("the target is outside any Git repository")]
+    public void StandaloneTarget()
+    {
+        target = Path.Combine(workspace, "standalone");
+        Directory.CreateDirectory(target);
+        Assert.That(Run("git", target, "rev-parse", "--show-toplevel").Code, Is.Not.Zero);
+    }
+
+    [Then("the target is a Git repository")]
+    public void TargetRepository()
+    {
+        Assert.That(result.Code, Is.Zero, result.Error);
+        Assert.That(GitAt(target, "rev-parse", "--show-toplevel"), Is.EqualTo(target));
+        Assert.That(GitAt(target, "status", "--porcelain"), Is.Empty);
+    }
+
+    [When("the factory runs one pass")]
+    public void OnePass() => Invoke(false);
+
+    private void Invoke(bool all, string? targetArgument = null)
+    {
+        baseline = GitAt(Directory.Exists(target) && Directory.Exists(Path.Combine(target, ".git")) ? target : repo, "rev-parse", "HEAD");
+        var args = new List<string> { Path.Combine(repo, "factory/Factory.dll") };
+        if (includeSeed) args.AddRange(["--seed", seed]);
+        if (includeTarget) args.AddRange(["--target", targetArgument ?? Path.GetRelativePath(repo, target)]);
+        if (harness != null) args.AddRange(["--agent", harness]);
+        if (all) args.Add("--all");
+        result = Run(Dotnet, repo, args.ToArray());
+    }
+
+    [When("the factory builds the target {string} to completion")]
+    public void BuildTarget(string name)
+    {
+        target = Path.Combine(repo, name);
+        Invoke(true);
+        Assert.That(result.Code, Is.Zero, result.Error);
+        snapshots.TryAdd(target, TargetSnapshot(target));
+    }
+
+    [When("the factory builds the same target using its absolute path")]
+    public void AbsoluteTarget()
+    {
+        Invoke(true, target);
+        Assert.That(result.Code, Is.Zero, result.Error);
+    }
+
+    private string TargetSnapshot(string folder) => string.Join("\n", Directory.GetFiles(folder, "*", SearchOption.AllDirectories)
+        .Order().Select(file => Path.GetRelativePath(folder, file) + ":" + Convert.ToBase64String(File.ReadAllBytes(file))))
+        + Git("log", "--format=%H", "--", Path.GetRelativePath(repo, folder));
+
+    [Then("the target {string} is unchanged")]
+    public void TargetUnchanged(string name)
+    {
+        var folder = Path.Combine(repo, name);
+        Assert.That(TargetSnapshot(folder), Is.EqualTo(snapshots[folder]));
+    }
+
+    [Then("the targets {string} and {string} each have their own completed plan and committed work")]
+    public void IndependentTargets(string first, string second)
+    {
+        foreach (var name in new[] { first, second })
+        {
+            var folder = Path.Combine(repo, name);
+            var planPath = Path.Combine(folder, ".factory/plan.md");
+            var tasks = JsonSerializer.Deserialize<Dictionary<string, bool>>(File.ReadAllText(planPath))!;
+            Assert.That(tasks.Keys, Is.EquivalentTo(new[] { "alpha", "beta" }));
+            Assert.That(tasks.Values.All(done => done), Is.True);
+            foreach (var task in tasks.Keys)
+            {
+                Assert.That(File.ReadAllText(Path.Combine(folder, task + ".txt")), Is.EqualTo($"Work for {task}\n"));
+                Assert.That(Git("show", $"HEAD:{name}/{task}.txt"), Is.EqualTo($"Work for {task}"));
+            }
+            Assert.That(Git("status", "--porcelain", "--", name), Is.Empty);
+        }
+    }
+
+    [Then("there are no new commits")]
+    public void NoCommits() => Assert.That(GitAt(target, "rev-parse", "HEAD"), Is.EqualTo(baseline));
+
+    [Then("the target uses the containing repository")]
+    public void ContainingRepo()
+    {
+        Assert.That(result.Code, Is.Zero, result.Error);
+        Assert.That(GitAt(target, "rev-parse", "--show-toplevel"), Is.EqualTo(repo));
+        Assert.That(Directory.Exists(Path.Combine(target, ".git")), Is.False);
+        Assert.That(Calls().All(c => c.GetProperty("cwd").GetString() == target), Is.True);
+    }
+
+    private JsonElement[] Calls() => Directory.Exists(Path.Combine(workspace, "calls"))
+        ? Directory.GetFiles(Path.Combine(workspace, "calls")).Order().Select(f => JsonSerializer.Deserialize<JsonElement>(File.ReadAllText(f))).ToArray()
+        : [];
+
+    [Given("no target is chosen")]
+    public void NoTarget() => includeTarget = false;
+
+    [Then("it reports that a target is required")]
+    public void TargetRequired() => ErrorContains("target is required");
+
+    private void ErrorContains(string message)
+    {
+        Assert.That(result.Code, Is.Not.Zero);
+        Assert.That(result.Error.ToLowerInvariant(), Does.Contain(message));
+    }
+
+    [Then("no agent has been called")]
+    public void NoAgentCalls() => Assert.That(Calls(), Is.Empty);
+
+    [Then("the plan has the tasks {string} and {string}, and no others")]
+    public void ExactTasks(string first, string second) => Assert.That(ReadPlan().Keys, Is.EqualTo(new[] { first, second }));
+
+    [Given("the agent writes a file called SENTINEL")]
+    public void SentinelAgent() => environment["DOUBLE_PRODUCT"] = "SENTINEL";
+
+    [Then("its only product file is SENTINEL")]
+    public void SentinelCommit()
+    {
+        Assert.That(ProductFiles(WorkCommits().Single()).Select(Path.GetFileName), Is.EqualTo(new[] { "SENTINEL" }));
+        Assert.That(GitAt(target, "show", "HEAD:./SENTINEL"), Is.EqualTo("Work for alpha"));
+    }
+
+    [Given("no harness is chosen")]
+    public void DefaultAgent() => harness = null;
+
+    [Then("pi has been called")]
+    public void PiCalled() => Assert.That(Calls().Select(c => c.GetProperty("agent").GetString()), Does.Contain("pi"));
+
+    [Then("the chosen agent has been called")]
+    public void ChosenCalled() => Assert.That(Calls().Select(c => c.GetProperty("agent").GetString()), Does.Contain("chosen-agent"));
+
+    [Then("pi has not been called")]
+    public void PiNotCalled() => Assert.That(Calls().Select(c => c.GetProperty("agent").GetString()), Does.Not.Contain("pi"));
+
+    [Given("the agent says {string} before its result")]
+    public void Preamble(string text) => environment["DOUBLE_PREAMBLE"] = text;
+
+    [Given("the agent cannot be run")]
+    public void MissingAgent() => harness = Path.Combine(workspace, "missing-agent");
+
+    [Then("it reports that it could not run the agent")]
+    public void AgentError() => ErrorContains("could not run the agent");
+
+    private string Prompt()
+    {
+        var call = Calls().Single();
+        Assert.That(call.GetProperty("cwd").GetString(), Is.EqualTo(target));
+        var arguments = call.GetProperty("args").EnumerateArray().Select(a => a.GetString()).ToArray();
+        Assert.That(arguments[..2], Is.EqualTo(new[] { "--print", "--no-session" }));
+        return arguments.Last()!;
+    }
+
+    [Then("the agent was pointed at the plan and at the seed")]
+    public void PromptPaths() => Assert.That(Prompt(), Does.Contain("Seed: " + seed).And.Contain("Plan: " + PlanPath));
+
+    [Then("the agent was asked for a result with the field {string}")]
+    public void PromptResult(string field) => Assert.That(Prompt(), Does.Contain("JSON").And.Contain($"\"{field}\"").And.Contain("no tasks remain"));
+
+    [Given("the agent answers in prose, with no result")]
+    public void ProseResult() => environment["DOUBLE_PROSE_RESULT"] = "1";
+
+    [Then("it reports that it could not read the agent's result")]
+    public void UnreadableResult() => ErrorContains("could not read the agent's result");
+
+    private string PlanPath => Path.Combine(target, ".factory/plan.md");
+    private Dictionary<string, bool> ReadPlan() => JsonSerializer.Deserialize<Dictionary<string, bool>>(File.ReadAllText(PlanPath))!;
+
+    private void ExistingPlan(params bool[] done)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(PlanPath)!);
+        var tasks = new[] { "alpha", "beta", "gamma" }.Zip(done).ToDictionary(t => t.First, t => t.Second);
+        File.WriteAllText(PlanPath, JsonSerializer.Serialize(tasks) + (done.All(d => d) ? "\n" : ""));
+        Git("add", "--", Path.GetRelativePath(repo, target));
+        Git("commit", "--only", "-qm", "Existing plan", "--", Path.GetRelativePath(repo, target));
+    }
+
+    [Given("a plan in which every task is done")]
+    public void CompletedPlan() => ExistingPlan(true, true, true);
+
+    [Given("a plan whose first task is done")]
+    public void PartlyDonePlan() => ExistingPlan(true, false, false);
+
+    [Given("a plan with three tasks, none of them done")]
+    public void UnfinishedPlan() => ExistingPlan(false, false, false);
+
+    [Then("the plan still has those three tasks")]
+    public void SameTasks() => Assert.That(ReadPlan().Keys, Is.EqualTo(new[] { "alpha", "beta", "gamma" }));
+
+    [Given("the agent keeps its plan in prose")]
+    public void ProsePlan() => environment["DOUBLE_PROSE_PLAN"] = "1";
+
+    [Given("no plan")]
+    public void NoPlan() => Assert.That(File.Exists(PlanPath), Is.False);
+
+    [Then("there is a plan")]
+    public void HasPlan()
+    {
+        Assert.That(result.Code, Is.Zero, result.Error);
+        Assert.That(File.Exists(PlanPath), Is.True);
+    }
+
+    [Then("the plan shows every task as not done")]
+    public void NoneDone() => Assert.That(ReadPlan().Values, Is.Not.Empty.And.All.False);
+
+    [Then("there are no new work commits")]
+    public void NoWorkCommits() => Assert.That(WorkCommits(), Is.Empty);
+
+    [Then("the committed plan matches the plan on disk")]
+    public void CommittedPlan()
+    {
+        var saved = Run("git", target, "show", "HEAD:./.factory/plan.md");
+        Assert.That(saved.Code, Is.Zero, saved.Error);
+        Assert.That(saved.Out, Is.EqualTo(File.ReadAllText(PlanPath)));
+    }
+
+    [Then("the target has no uncommitted changes")]
+    public void CleanTarget() => Assert.That(GitAt(target, "status", "--porcelain", "--", "."), Is.Empty);
+
+    [Given("no seed is chosen")]
+    public void NoSeedArgument() => includeSeed = false;
+
+    [Given("the seed has been deleted")]
+    public void MissingSeed() => File.Delete(seed);
+
+    [Then("it reports that there is no seed")]
+    public void SeedRequired() => ErrorContains("there is no seed");
+
+    [Then("there is no plan")]
+    public void StillNoPlan() => Assert.That(File.Exists(PlanPath), Is.False);
+
+    [Then("there is no plan in the factory's folder")]
+    public void NoFactoryPlan() => Assert.That(Directory.GetFiles(Path.Combine(repo, "factory"), "plan.md", SearchOption.AllDirectories), Is.Empty);
+
+    [Then("the plan shows the first two tasks as done")]
+    public void FirstTwoDone() => Assert.That(ReadPlan().Values, Is.EqualTo(new[] { true, true, false }));
+
+    [Then("the work for alpha and beta has been committed")]
+    public void ProseWorkCommitted()
+    {
+        Assert.That(result.Code, Is.Zero, result.Error);
+        foreach (var task in new[] { "alpha", "beta" })
+            Assert.That(GitAt(target, "show", $"HEAD:./{task}.txt"), Is.EqualTo($"Work for {task}"));
+        Assert.That(WorkCommits(), Has.Length.EqualTo(2));
+        Assert.That(File.ReadAllText(PlanPath), Does.Contain("Task alpha is finished.").And.Contain("Task beta is finished."));
+    }
+
+    [Then("the plan shows the first task as done")]
+    public void FirstDone() => Assert.That(ReadPlan()["alpha"], Is.True);
+
+    [Then("the plan shows the other two as not done")]
+    public void OthersNotDone() => Assert.That(ReadPlan().Where(t => t.Key != "alpha").Select(t => t.Value), Is.EqualTo(new[] { false, false }));
+
+    [Then("the plan shows every task as done")]
+    public void AllDone() => Assert.That(ReadPlan().Values, Is.Not.Empty.And.All.True);
+
+    [Then("there are three new work commits")]
+    public void ThreeWorkCommits()
+    {
+        Assert.That(result.Code, Is.Zero, result.Error);
+        Assert.That(WorkCommits(), Has.Length.EqualTo(3));
+        var files = WorkCommits().SelectMany(ProductFiles).Select(Path.GetFileName);
+        Assert.That(files, Is.EquivalentTo(new[] { "alpha.txt", "beta.txt", "gamma.txt" }));
+    }
+
+    private string[] WorkCommits() => GitAt(target, "rev-list", $"{baseline}..HEAD")
+        .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+        .Where(commit => ProductFiles(commit).Length > 0).ToArray();
+
+    private string[] ProductFiles(string commit) => GitAt(target, "diff-tree", "--no-commit-id", "--name-only", "-r", commit, "--", ".")
+        .Split('\n', StringSplitOptions.RemoveEmptyEntries).Where(n => !n.Contains(".factory/")).ToArray();
+
+    [Then("there is one new work commit")]
+    public void OneWorkCommit()
+    {
+        Assert.That(result.Code, Is.Zero, result.Error);
+        Assert.That(WorkCommits(), Has.Length.EqualTo(1));
+    }
+
+    [Then("it contains the work for the first task")]
+    public void FirstWork() => CommittedTask("alpha");
+
+    [Then("it contains the work for the second task")]
+    public void SecondWork() => CommittedTask("beta");
+
+    private void CommittedTask(string task)
+    {
+        var relative = Path.GetRelativePath(repo, target).Replace(Path.DirectorySeparatorChar, '/');
+        Assert.That(ProductFiles(WorkCommits().Single()), Is.EqualTo(new[] { $"{relative}/{task}.txt" }));
+        Assert.That(GitAt(target, "show", $"HEAD:./{task}.txt"), Is.EqualTo($"Work for {task}"));
+    }
+
+    [When("the factory runs to completion")]
+    public void AllPasses() => Invoke(true);
+
+    [Then("the agent has been called once")]
+    public void OneCall() => Assert.That(Calls(), Has.Length.EqualTo(1));
+
+    [Then("the factory has stopped")]
+    public void Stopped()
+    {
+        // Run waits for exit and kills the whole process tree if it times out.
+        Assert.That(result.Code, Is.EqualTo(0).Or.EqualTo(1));
+        if (result.Code == 0) Assert.That(result.Out, Does.Contain("factory stopped"));
+    }
+
+    [Then(@"^the plan is \.factory/plan\.md in the target$")]
+    public void PlanInTarget() => Assert.That(File.Exists(Path.Combine(target, ".factory/plan.md")), Is.True);
+
+    [Then("the factory's own files and unrelated uncommitted changes are as they were")]
+    public void UnrelatedUntouched()
+    {
+        Assert.That(UnrelatedSnapshot(), Is.EqualTo(unrelated));
+        var names = Git("diff", "--name-only", baseline, "HEAD").Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.That(names.All(n => !n.StartsWith("factory/") && !n.StartsWith("unrelated") && n != "untracked.txt"), Is.True);
+    }
+
+    [AfterScenario]
+    public void Cleanup()
+    {
+        if (workspace != null && Directory.Exists(workspace)) Directory.Delete(workspace, true);
+    }
+}
