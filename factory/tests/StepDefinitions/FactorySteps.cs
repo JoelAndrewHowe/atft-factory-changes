@@ -7,7 +7,9 @@ namespace Factory.Tests;
 public sealed class FactorySteps
 {
     private string workspace = null!, repo = null!, target = null!, seed = null!;
-    private string? harness;
+    private string? harness, doerHarness;
+    private int maxAttempts = 3;
+    private string lens = "testability";
     private bool includeSeed = true, includeTarget = true;
     private string baseline = "", unrelated = "";
     private Result result = new(0, "", "");
@@ -93,7 +95,7 @@ public sealed class FactorySteps
         + Git("status", "--porcelain", "--", "factory", "unrelated.txt", "untracked.txt")
         + File.ReadAllText(Path.Combine(repo, "untracked.txt"));
 
-    [Given("the agent plans the tasks alpha and beta, and does one task a pass")]
+    [Given("the planner plans the tasks alpha and beta")]
     public void Agent()
     {
         var bin = Path.Combine(workspace, "agents");
@@ -111,6 +113,12 @@ public sealed class FactorySteps
         environment["PATH"] = bin + Path.PathSeparator + Environment.GetEnvironmentVariable("PATH");
         environment["DOUBLE_WORKSPACE"] = workspace;
     }
+
+    [Given("the doer does the next task in the plan")]
+    public void Doer() { } // The external double implements this behavior by default.
+
+    [Given("the validator is always satisfied")]
+    public void Satisfied() => environment["DOUBLE_VALIDATION"] = "satisfied";
 
     [Given("the target folder does not exist")]
     public void MissingTarget() => Directory.Delete(target);
@@ -141,6 +149,8 @@ public sealed class FactorySteps
         if (includeSeed) args.AddRange(["--seed", seed]);
         if (includeTarget) args.AddRange(["--target", targetArgument ?? Path.GetRelativePath(repo, target)]);
         if (harness != null) args.AddRange(["--agent", harness]);
+        if (doerHarness != null) args.AddRange(["--doer", doerHarness]);
+        args.AddRange(["--max-attempts", maxAttempts.ToString(), "--lens", lens]);
         if (all) args.Add("--all");
         result = Run(Dotnet, repo, args.ToArray());
     }
@@ -225,7 +235,7 @@ public sealed class FactorySteps
     [Then("the plan has the tasks {string} and {string}, and no others")]
     public void ExactTasks(string first, string second) => Assert.That(ReadPlan().Keys, Is.EqualTo(new[] { first, second }));
 
-    [Given("the agent writes a file called SENTINEL")]
+    [Given("the doer writes a file called SENTINEL")]
     public void SentinelAgent() => environment["DOUBLE_PRODUCT"] = "SENTINEL";
 
     [Then("its only product file is SENTINEL")]
@@ -241,41 +251,43 @@ public sealed class FactorySteps
     [Then("pi has been called")]
     public void PiCalled() => Assert.That(Calls().Select(c => c.GetProperty("agent").GetString()), Does.Contain("pi"));
 
-    [Then("the chosen agent has been called")]
-    public void ChosenCalled() => Assert.That(Calls().Select(c => c.GetProperty("agent").GetString()), Does.Contain("chosen-agent"));
+    [Then("the doer's chosen harness has been called")]
+    public void ChosenCalled() => Assert.That(RoleCalls("doer").Select(c => c.GetProperty("agent").GetString()), Does.Contain("chosen-agent"));
 
     [Then("pi has not been called")]
     public void PiNotCalled() => Assert.That(Calls().Select(c => c.GetProperty("agent").GetString()), Does.Not.Contain("pi"));
 
-    [Given("the agent says {string} before its result")]
+    [Given("the validator says {string} before its result")]
     public void Preamble(string text) => environment["DOUBLE_PREAMBLE"] = text;
 
-    [Given("the agent cannot be run")]
-    public void MissingAgent() => harness = Path.Combine(workspace, "missing-agent");
+    [Given("the doer cannot be run")]
+    public void MissingAgent() => doerHarness = Path.Combine(workspace, "missing-agent");
 
-    [Then("it reports that it could not run the agent")]
-    public void AgentError() => ErrorContains("could not run the agent");
+    [Then("it reports that it could not run the doer")]
+    public void AgentError() => ErrorContains("could not run the doer");
 
-    private string Prompt()
+    private JsonElement[] RoleCalls(string role) => Calls().Where(c => c.GetProperty("role").GetString() == role).ToArray();
+
+    private string Prompt(string role)
     {
-        var call = Calls().Single();
+        var call = RoleCalls(role).First();
         Assert.That(call.GetProperty("cwd").GetString(), Is.EqualTo(target));
         var arguments = call.GetProperty("args").EnumerateArray().Select(a => a.GetString()).ToArray();
         Assert.That(arguments[..2], Is.EqualTo(new[] { "--print", "--no-session" }));
         return arguments.Last()!;
     }
 
-    [Then("the agent was pointed at the plan and at the seed")]
-    public void PromptPaths() => Assert.That(Prompt(), Does.Contain("Seed: " + seed).And.Contain("Plan: " + PlanPath));
+    [Then("the doer was pointed at the plan and at the seed")]
+    public void PromptPaths() => Assert.That(Prompt("doer"), Does.Contain("Seed: " + seed).And.Contain("Plan: " + PlanPath));
 
-    [Then("the agent was asked for a result with the field {string}")]
-    public void PromptResult(string field) => Assert.That(Prompt(), Does.Contain("JSON").And.Contain($"\"{field}\"").And.Contain("no tasks remain"));
+    [Then("the planner was asked for a result with the field {string}")]
+    public void PromptResult(string field) => Assert.That(Prompt("planner"), Does.Contain("JSON").And.Contain($"\"{field}\"").And.Contain("no tasks remain"));
 
-    [Given("the agent answers in prose, with no result")]
+    [Given("the validator answers in prose, with no result")]
     public void ProseResult() => environment["DOUBLE_PROSE_RESULT"] = "1";
 
-    [Then("it reports that it could not read the agent's result")]
-    public void UnreadableResult() => ErrorContains("could not read the agent's result");
+    [Then("it reports that it could not read the validator's result")]
+    public void UnreadableResult() => ErrorContains("could not read the validator's result");
 
     private string PlanPath => Path.Combine(target, ".factory/plan.md");
     private Dictionary<string, bool> ReadPlan() => JsonSerializer.Deserialize<Dictionary<string, bool>>(File.ReadAllText(PlanPath))!;
@@ -293,7 +305,13 @@ public sealed class FactorySteps
     public void CompletedPlan() => ExistingPlan(true, true, true);
 
     [Given("a plan whose first task is done")]
-    public void PartlyDonePlan() => ExistingPlan(true, false, false);
+    public void PartlyDonePlan()
+    {
+        ExistingPlan(true, false, false);
+        File.WriteAllText(Path.Combine(target, "alpha.txt"), "Work for alpha\n");
+        Git("add", "--", Path.GetRelativePath(repo, target));
+        Git("commit", "--only", "-qm", "Existing first task", "--", Path.GetRelativePath(repo, target));
+    }
 
     [Given("a plan with three tasks, none of them done")]
     public void UnfinishedPlan() => ExistingPlan(false, false, false);
@@ -301,7 +319,8 @@ public sealed class FactorySteps
     [Then("the plan still has those three tasks")]
     public void SameTasks() => Assert.That(ReadPlan().Keys, Is.EqualTo(new[] { "alpha", "beta", "gamma" }));
 
-    [Given("the agent keeps its plan in prose")]
+    [Given("the planner keeps its plan in prose")]
+    [Given("the doer keeps its plan in prose")]
     public void ProsePlan() => environment["DOUBLE_PROSE_PLAN"] = "1";
 
     [Given("no plan")]
@@ -407,8 +426,55 @@ public sealed class FactorySteps
     [When("the factory runs to completion")]
     public void AllPasses() => Invoke(true);
 
-    [Then("the agent has been called once")]
-    public void OneCall() => Assert.That(Calls(), Has.Length.EqualTo(1));
+    [Then("the doer has been called once")]
+    public void OneCall() => Assert.That(RoleCalls("doer"), Has.Length.EqualTo(1));
+
+    [Then("the doer has been called twice")]
+    public void TwoCalls() => Assert.That(RoleCalls("doer"), Has.Length.EqualTo(2));
+
+    [Then("the doer has been called three times")]
+    public void ThreeCalls() => Assert.That(RoleCalls("doer"), Has.Length.EqualTo(3));
+
+    [Then("the doer has not been called")]
+    public void NoDoer() => Assert.That(RoleCalls("doer"), Is.Empty);
+
+    [Given("the factory allows at most three attempts per pass")]
+    public void AttemptLimit() => maxAttempts = 3;
+
+    [Given("the validator is never satisfied")]
+    public void NeverSatisfied() => environment["DOUBLE_VALIDATION"] = "never";
+
+    [Given("the validator is not satisfied the first time")]
+    public void RetryValidation() => environment["DOUBLE_VALIDATION"] = "retry";
+
+    [Then("it reports that the pass hit its limit")]
+    public void HitLimit() => ErrorContains("pass hit its limit");
+
+    [Given("the validator's lens is testability")]
+    public void Testability() => lens = "testability";
+
+    [Then("the validator was given {string}")]
+    public void ValidatorInput(string text) => Assert.That(Prompt("validator"), Does.Contain(text));
+
+    [Then("the validator was asked for a result with the fields {string} and {string}")]
+    public void ValidatorFields(string first, string second) => Assert.That(Prompt("validator"),
+        Does.Contain("JSON").And.Contain($"\"{first}\"").And.Contain($"\"{second}\""));
+
+    [Then("the validator was given the work for the second task")]
+    public void SecondTaskValidation() => Assert.That(Prompt("validator"), Does.Contain("+Work for beta"));
+
+    [Then("it was not given the work for the first task")]
+    public void NoFirstTaskValidation() => Assert.That(Prompt("validator"), Does.Not.Contain("Work for alpha"));
+
+    [Then("the doer was given the validator's findings")]
+    public void FindingsReturned()
+    {
+        var prompts = RoleCalls("doer").Select(c => c.GetProperty("args").EnumerateArray().Last().GetString()).ToArray();
+        Assert.That(prompts, Has.Length.EqualTo(2));
+        Assert.That(prompts[0], Does.Not.Contain("Extract the task logic into a testable function."));
+        Assert.That(prompts[1], Does.Contain("Extract the task logic into a testable function."));
+        Assert.That(prompts[1], Does.Contain("subtask of the current task"));
+    }
 
     [Then("the factory has stopped")]
     public void Stopped()
