@@ -2,10 +2,10 @@
 
 ## Tasks
 
-- [ ] Set up React + TypeScript + Vite project under `atft/` with `package.json`, lockfile, and documented supported Node version
-- [ ] Add npm scripts: `dev`, `build`, `preview`, `test`, `test:e2e`
-- [ ] Configure Vitest and Playwright for unit and browser tests
-- [ ] Create canonical fixture source (patient references, vaccines, dates, lot numbers, expected request/response) shared by all modules
+- [x] Set up React + TypeScript + Vite project under `atft/` with `package.json`, lockfile, and documented supported Node version
+- [x] Add npm scripts: `dev`, `build`, `preview`, `test`, `test:e2e`
+- [x] Configure Vitest and Playwright for unit and browser tests
+- [x] Create canonical fixture source (patient references, vaccines, dates, lot numbers, expected request/response) shared by all modules
 - [ ] Build lesson data module with text, code templates, gap definitions, and canonical answers for all 5 lessons
 - [ ] Build pure validation/normalization helpers for each gap (string vs token, whitespace rules, case preservation, dot-whitespace tolerance)
 - [ ] Build state transition helpers (lesson status: Locked, Available, Needs check, Complete; unlock progression; edit invalidation)
@@ -21,8 +21,9 @@
 - [ ] Implement worked example panel with alternate fixture values in every coding lesson
 - [ ] Implement Run simulated test (lesson 5): revalidate all lessons, display assembled files, fixed HTTP exchange, four simulated pass rows, learning recap
 - [ ] Implement Start over with confirmation dialog, clearing only the tutorial storage key and resetting to lesson 1
-- [ ] Write README documenting install/build commands, simulation limits, local storage behavior, and supported Node version
-- [ ] Unit-test: validator cases, progression/invalidation transitions, corrupted storage recovery, fixture/template consistency
+- [x] Write README documenting install/build commands, simulation limits, local storage behavior, and supported Node version
+- [x] Unit-test: fixture/template consistency
+- [ ] Unit-test: validator cases, progression/invalidation transitions, corrupted storage recovery
 - [ ] Browser-test (Playwright): happy path, wrong-answer correction, solution reveal without mutation, refresh/resume, earlier-answer edit invalidation, reset cancel/confirm, console errors, unexpected network requests
 - [ ] Verify production build succeeds and all tests pass
 - [ ] Verify no real code execution, no real API requests, no HTML interpretation of learner inputs, full keyboard operability, and accessibility requirements
