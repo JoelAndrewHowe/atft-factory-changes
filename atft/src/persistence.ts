@@ -100,7 +100,7 @@ export function deriveProgressState(
   readingComplete: boolean,
   config: Pick<PersistenceConfig, 'lessons' | 'allGapIds'>,
 ): ProgressState {
-  const { lessons, allGapIds } = config;
+  const { lessons } = config;
   const lessonIds = getLessonIds(lessons);
   const engine = createProgressionEngine(lessonIds);
   let state = engine.createInitialProgress();
