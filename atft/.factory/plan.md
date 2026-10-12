@@ -8,7 +8,7 @@
 - [x] Create canonical fixture source (patient references, vaccines, dates, lot numbers, expected request/response) shared by all modules
 - [x] Build lesson data module with text, code templates, gap definitions, and canonical answers for all 5 lessons
 - [x] Build pure validation/normalization helpers for each gap (string vs token, whitespace rules, case preservation, dot-whitespace tolerance)
-- [ ] Build state transition helpers (lesson status: Locked, Available, Needs check, Complete; unlock progression; edit invalidation)
+- [x] Build state transition helpers (lesson status: Locked, Available, Needs check, Complete; unlock progression; edit invalidation)
 - [ ] Build localStorage persistence with schema version `atft.iteration001.progress.v1`, validation, and graceful reset on incompatible data
 - [ ] Render IDE-style shell: lesson navigation sidebar, instruction/example area, read-only code with embedded gap inputs, feedback/result area
 - [ ] Implement lesson 1 (Understand the API): display fixtures, simulation label, Continue marks complete and unlocks lesson 2
