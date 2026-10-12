@@ -10,17 +10,17 @@
 - [x] Build pure validation/normalization helpers for each gap (string vs token, whitespace rules, case preservation, dot-whitespace tolerance)
 - [x] Build state transition helpers (lesson status: Locked, Available, Needs check, Complete; unlock progression; edit invalidation)
 - [x] Build localStorage persistence with schema version `atft.iteration001.progress.v1`, validation, and graceful reset on incompatible data
-- [ ] Render IDE-style shell: lesson navigation sidebar, instruction/example area, read-only code with embedded gap inputs, feedback/result area
-- [ ] Implement lesson 1 (Understand the API): display fixtures, simulation label, Continue marks complete and unlocks lesson 2
-- [ ] Implement lesson 2 (Describe the behavior): Feature/Scenario with editable Gherkin gaps (feature.given, feature.patient, feature.when, feature.then, feature.status)
-- [ ] Implement lesson 3 (Model the data): Immunization.cs with editable C# model gaps (model.vaccine, model.patient, model.date)
-- [ ] Implement lesson 4 (Build the request): RecordVaccinationSteps.cs Given/When gaps (request.status, request.patient, request.method, request.endpoint, request.media)
-- [ ] Implement lesson 5 (Verify the response): RecordVaccinationSteps.cs Then/And gaps (response.status, response.model, response.patient, response.lot)
-- [ ] Implement Check my work: evaluate all gaps in current lesson, inline errors with summary, focus first invalid, enable Continue on pass
-- [ ] Implement Show solution panel per lesson displaying correct learner code without mutating inputs or marking complete
-- [ ] Implement worked example panel with alternate fixture values in every coding lesson
-- [ ] Implement Run simulated test (lesson 5): revalidate all lessons, display assembled files, fixed HTTP exchange, four simulated pass rows, learning recap
-- [ ] Implement Start over with confirmation dialog, clearing only the tutorial storage key and resetting to lesson 1
+- [x] Render IDE-style shell: lesson navigation sidebar, instruction/example area, read-only code with embedded gap inputs, feedback/result area
+- [x] Implement lesson 1 (Understand the API): display fixtures, simulation label, Continue marks complete and unlocks lesson 2
+- [x] Implement lesson 2 (Describe the behavior): Feature/Scenario with editable Gherkin gaps (feature.given, feature.patient, feature.when, feature.then, feature.status)
+- [x] Implement lesson 3 (Model the data): Immunization.cs with editable C# model gaps (model.vaccine, model.patient, model.date)
+- [x] Implement lesson 4 (Build the request): RecordVaccinationSteps.cs Given/When gaps (request.status, request.patient, request.method, request.endpoint, request.media)
+- [x] Implement lesson 5 (Verify the response): RecordVaccinationSteps.cs Then/And gaps (response.status, response.model, response.patient, response.lot)
+- [x] Implement Check my work: evaluate all gaps in current lesson, inline errors with summary, focus first invalid, enable Continue on pass
+- [x] Implement Show solution panel per lesson displaying correct learner code without mutating inputs or marking complete
+- [x] Implement worked example panel with alternate fixture values in every coding lesson
+- [x] Implement Run simulated test (lesson 5): revalidate all lessons, display assembled files, fixed HTTP exchange, four simulated pass rows, learning recap
+- [x] Implement Start over with confirmation dialog, clearing only the tutorial storage key and resetting to lesson 1
 - [x] Write README documenting install/build commands, simulation limits, local storage behavior, and supported Node version
 - [x] Unit-test: fixture/template consistency
 - [x] Unit-test: validator cases
