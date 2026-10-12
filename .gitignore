@@ -1,0 +1,4 @@
+factory/**/bin/
+factory/**/obj/
+factory/**/TestResults/
+factory/**/*.feature.cs

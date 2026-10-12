@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+if command -v dotnet >/dev/null 2>&1; then
+  exec dotnet "$@"
+fi
+exec "$HOME/.dotnet/dotnet" "$@"

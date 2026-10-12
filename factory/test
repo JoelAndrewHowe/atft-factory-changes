@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+factory_dir=$(dirname "$(readlink -f "$0")")
+filter='TestCategory!=real-agent'
+if [[ "${1:-}" == '--real-agent' ]]; then
+  filter='TestCategory=real-agent'
+  shift
+fi
+exec "$factory_dir/dotnet" test "$factory_dir/tests/Factory.Tests.csproj" --filter "$filter" "$@"

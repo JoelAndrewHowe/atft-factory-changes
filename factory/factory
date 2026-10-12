@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+factory_dir=$(dirname "$(readlink -f "$0")")
+"$factory_dir/dotnet" build "$factory_dir/src/Factory.csproj" --nologo --verbosity quiet >&2
+exec "$factory_dir/dotnet" "$factory_dir/src/bin/Debug/net8.0/Factory.dll" "$@"
