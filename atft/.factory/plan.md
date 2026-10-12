@@ -7,7 +7,7 @@
 - [x] Configure Vitest and Playwright for unit and browser tests
 - [x] Create canonical fixture source (patient references, vaccines, dates, lot numbers, expected request/response) shared by all modules
 - [x] Build lesson data module with text, code templates, gap definitions, and canonical answers for all 5 lessons
-- [ ] Build pure validation/normalization helpers for each gap (string vs token, whitespace rules, case preservation, dot-whitespace tolerance)
+- [x] Build pure validation/normalization helpers for each gap (string vs token, whitespace rules, case preservation, dot-whitespace tolerance)
 - [ ] Build state transition helpers (lesson status: Locked, Available, Needs check, Complete; unlock progression; edit invalidation)
 - [ ] Build localStorage persistence with schema version `atft.iteration001.progress.v1`, validation, and graceful reset on incompatible data
 - [ ] Render IDE-style shell: lesson navigation sidebar, instruction/example area, read-only code with embedded gap inputs, feedback/result area
@@ -23,7 +23,8 @@
 - [ ] Implement Start over with confirmation dialog, clearing only the tutorial storage key and resetting to lesson 1
 - [x] Write README documenting install/build commands, simulation limits, local storage behavior, and supported Node version
 - [x] Unit-test: fixture/template consistency
-- [ ] Unit-test: validator cases, progression/invalidation transitions, corrupted storage recovery
+- [x] Unit-test: validator cases
+- [ ] Unit-test: progression/invalidation transitions and corrupted storage recovery
 - [ ] Browser-test (Playwright): happy path, wrong-answer correction, solution reveal without mutation, refresh/resume, earlier-answer edit invalidation, reset cancel/confirm, console errors, unexpected network requests
 - [ ] Verify production build succeeds and all tests pass
 - [ ] Verify no real code execution, no real API requests, no HTML interpretation of learner inputs, full keyboard operability, and accessibility requirements
