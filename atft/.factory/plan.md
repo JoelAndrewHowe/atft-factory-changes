@@ -6,7 +6,7 @@
 - [x] Add npm scripts: `dev`, `build`, `preview`, `test`, `test:e2e`
 - [x] Configure Vitest and Playwright for unit and browser tests
 - [x] Create canonical fixture source (patient references, vaccines, dates, lot numbers, expected request/response) shared by all modules
-- [ ] Build lesson data module with text, code templates, gap definitions, and canonical answers for all 5 lessons
+- [x] Build lesson data module with text, code templates, gap definitions, and canonical answers for all 5 lessons
 - [ ] Build pure validation/normalization helpers for each gap (string vs token, whitespace rules, case preservation, dot-whitespace tolerance)
 - [ ] Build state transition helpers (lesson status: Locked, Available, Needs check, Complete; unlock progression; edit invalidation)
 - [ ] Build localStorage persistence with schema version `atft.iteration001.progress.v1`, validation, and graceful reset on incompatible data
