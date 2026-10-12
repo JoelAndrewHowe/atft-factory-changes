@@ -1,0 +1,28 @@
+# Plan — Iteration 001: Record a vaccination tutorial
+
+## Tasks
+
+- [ ] Set up React + TypeScript + Vite project under `atft/` with `package.json`, lockfile, and documented supported Node version
+- [ ] Add npm scripts: `dev`, `build`, `preview`, `test`, `test:e2e`
+- [ ] Configure Vitest and Playwright for unit and browser tests
+- [ ] Create canonical fixture source (patient references, vaccines, dates, lot numbers, expected request/response) shared by all modules
+- [ ] Build lesson data module with text, code templates, gap definitions, and canonical answers for all 5 lessons
+- [ ] Build pure validation/normalization helpers for each gap (string vs token, whitespace rules, case preservation, dot-whitespace tolerance)
+- [ ] Build state transition helpers (lesson status: Locked, Available, Needs check, Complete; unlock progression; edit invalidation)
+- [ ] Build localStorage persistence with schema version `atft.iteration001.progress.v1`, validation, and graceful reset on incompatible data
+- [ ] Render IDE-style shell: lesson navigation sidebar, instruction/example area, read-only code with embedded gap inputs, feedback/result area
+- [ ] Implement lesson 1 (Understand the API): display fixtures, simulation label, Continue marks complete and unlocks lesson 2
+- [ ] Implement lesson 2 (Describe the behavior): Feature/Scenario with editable Gherkin gaps (feature.given, feature.patient, feature.when, feature.then, feature.status)
+- [ ] Implement lesson 3 (Model the data): Immunization.cs with editable C# model gaps (model.vaccine, model.patient, model.date)
+- [ ] Implement lesson 4 (Build the request): RecordVaccinationSteps.cs Given/When gaps (request.status, request.patient, request.method, request.endpoint, request.media)
+- [ ] Implement lesson 5 (Verify the response): RecordVaccinationSteps.cs Then/And gaps (response.status, response.model, response.patient, response.lot)
+- [ ] Implement Check my work: evaluate all gaps in current lesson, inline errors with summary, focus first invalid, enable Continue on pass
+- [ ] Implement Show solution panel per lesson displaying correct learner code without mutating inputs or marking complete
+- [ ] Implement worked example panel with alternate fixture values in every coding lesson
+- [ ] Implement Run simulated test (lesson 5): revalidate all lessons, display assembled files, fixed HTTP exchange, four simulated pass rows, learning recap
+- [ ] Implement Start over with confirmation dialog, clearing only the tutorial storage key and resetting to lesson 1
+- [ ] Write README documenting install/build commands, simulation limits, local storage behavior, and supported Node version
+- [ ] Unit-test: validator cases, progression/invalidation transitions, corrupted storage recovery, fixture/template consistency
+- [ ] Browser-test (Playwright): happy path, wrong-answer correction, solution reveal without mutation, refresh/resume, earlier-answer edit invalidation, reset cancel/confirm, console errors, unexpected network requests
+- [ ] Verify production build succeeds and all tests pass
+- [ ] Verify no real code execution, no real API requests, no HTML interpretation of learner inputs, full keyboard operability, and accessibility requirements
