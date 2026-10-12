@@ -9,7 +9,7 @@
 - [x] Build lesson data module with text, code templates, gap definitions, and canonical answers for all 5 lessons
 - [x] Build pure validation/normalization helpers for each gap (string vs token, whitespace rules, case preservation, dot-whitespace tolerance)
 - [x] Build state transition helpers (lesson status: Locked, Available, Needs check, Complete; unlock progression; edit invalidation)
-- [ ] Build localStorage persistence with schema version `atft.iteration001.progress.v1`, validation, and graceful reset on incompatible data
+- [x] Build localStorage persistence with schema version `atft.iteration001.progress.v1`, validation, and graceful reset on incompatible data
 - [ ] Render IDE-style shell: lesson navigation sidebar, instruction/example area, read-only code with embedded gap inputs, feedback/result area
 - [ ] Implement lesson 1 (Understand the API): display fixtures, simulation label, Continue marks complete and unlocks lesson 2
 - [ ] Implement lesson 2 (Describe the behavior): Feature/Scenario with editable Gherkin gaps (feature.given, feature.patient, feature.when, feature.then, feature.status)
@@ -24,7 +24,7 @@
 - [x] Write README documenting install/build commands, simulation limits, local storage behavior, and supported Node version
 - [x] Unit-test: fixture/template consistency
 - [x] Unit-test: validator cases
-- [ ] Unit-test: progression/invalidation transitions and corrupted storage recovery
+- [x] Unit-test: progression/invalidation transitions and corrupted storage recovery
 - [ ] Browser-test (Playwright): happy path, wrong-answer correction, solution reveal without mutation, refresh/resume, earlier-answer edit invalidation, reset cancel/confirm, console errors, unexpected network requests
 - [ ] Verify production build succeeds and all tests pass
 - [ ] Verify no real code execution, no real API requests, no HTML interpretation of learner inputs, full keyboard operability, and accessibility requirements
