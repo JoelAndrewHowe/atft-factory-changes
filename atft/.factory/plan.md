@@ -27,4 +27,7 @@
 - [x] Unit-test: progression/invalidation transitions and corrupted storage recovery
 - [x] Browser-test (Playwright): happy path, wrong-answer correction, solution reveal without mutation, refresh/resume, earlier-answer edit invalidation, reset cancel/confirm, console errors, unexpected network requests
 - [ ] Verify production build succeeds and all tests pass
+  - [ ] Replace hardcoded 32 KiB threshold with named constant in Program.cs
+  - [ ] Extract prompt temp-file logic into a testable helper
+  - [ ] Add assertion that prompts at or below boundary bypass temp-file path
 - [ ] Verify no real code execution, no real API requests, no HTML interpretation of learner inputs, full keyboard operability, and accessibility requirements
