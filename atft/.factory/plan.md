@@ -25,6 +25,6 @@
 - [x] Unit-test: fixture/template consistency
 - [x] Unit-test: validator cases
 - [x] Unit-test: progression/invalidation transitions and corrupted storage recovery
-- [ ] Browser-test (Playwright): happy path, wrong-answer correction, solution reveal without mutation, refresh/resume, earlier-answer edit invalidation, reset cancel/confirm, console errors, unexpected network requests
+- [x] Browser-test (Playwright): happy path, wrong-answer correction, solution reveal without mutation, refresh/resume, earlier-answer edit invalidation, reset cancel/confirm, console errors, unexpected network requests
 - [ ] Verify production build succeeds and all tests pass
 - [ ] Verify no real code execution, no real API requests, no HTML interpretation of learner inputs, full keyboard operability, and accessibility requirements
