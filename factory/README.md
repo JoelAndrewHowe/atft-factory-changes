@@ -7,51 +7,61 @@ From the repository root:
 
 ```sh
 bin/factory --help
-bin/factory --seed tetris/spec.md --target tetris/tetris-002
-bin/factory --seed tetris/spec.md --target tetris/tetris-002 --all
+bin/factory --check-line
+bin/factory --seed tetris/spec.md --target tetris/tetris-003
+bin/factory --seed tetris/spec.md --target tetris/tetris-003 --max-attempts 5
 ```
 
-A first pass creates and commits a plan without doing product work. With an
-existing plan, the planner checks completion, the doer implements one task,
-and the validator checks the current work. Rejected findings go back to the
-doer to record as subtasks and fix. Accepted work is committed before the
-planner marks the task done; a separate plan commit records that update.
-`--all` continues until the planner reports completion. The factory never
-reads the plan itself. Relative paths resolve from the caller's directory.
-Commits include only the selected target, preserving unrelated staged and
-unstaged edits.
+The factory reads `factory/assembly-line.dot` before doing any work. The
+Graphviz graph routes from `start` through named machines to `finish`.
+An unlabelled edge always routes; `label="complete"` routes when that JSON
+result field is true, and `label="not complete"` when it is false. The graph
+uses one edge per line (or semicolon), with optional quoted label attributes.
+Unknown machines and nodes without a path to finish are rejected.
+`--check-line` checks the graph without calling agents or changing targets.
 
-## Validation
+The default line runs planner → doer → validator, retries rejected work,
+and returns accepted work to the planner. To skip validation, replace the
+three doer/validator edges with `doer -> planner`. No C# change is needed.
+The line runs to completion; the old one-pass mode and `--all` are removed.
 
-The chosen default lens is **testability**: the validator looks for work
-that can be tested and reports obstacles to testing. `--lens <focus>` changes
-that choice, for example `--lens internationalisation`.
+The planner creates tasks from the seed. Each task's work is committed before
+the planner marks it done, and a separate plan commit records that update.
+The factory never reads the plan itself. Relative seed and target paths
+resolve from the caller's directory. Commits include only the selected target,
+preserving unrelated staged and unstaged edits.
 
-`--max-attempts <number>` limits doer/validator attempts per task (default 3).
-If validation still fails, the factory exits with status 1 and leaves the
-work uncommitted. Harness failures and unreadable planner or validator
-results also stop the run with an error on stderr.
+## Machines and validation
 
-The validator receives a Git diff of the current uncommitted product work,
+`planner.json`, `doer.json` and `validator.json` live alongside the line in
+`factory/`. Each may name a `"harness"`; omission or null selects `pi`.
+For example, `{"harness":"/path/to/custom-agent"}` chooses another harness.
+Relative harness paths containing a slash resolve from the factory folder.
+The former `--agent`, `--doer` and `--lens` options are replaced by these files.
+
+The validator's `"lens"` defaults to **testability**. Edit `validator.json`
+to choose another, such as `"internationalisation"`.
+
+`--max-attempts <number>` limits doer attempts per task (default 3).
+If validation keeps routing back to the doer, the factory exits with status 1
+at the limit and leaves the work uncommitted. Harness failures, unreadable
+results and missing routing fields also stop the run with an error on stderr.
+
+The validator receives a Git diff of current uncommitted product work,
 including new files, excluding the plan. A temporary Git index produces
 this diff without changing the real staging area. The validator is instructed
-to report only and change neither the plan nor product files.
+to report only and change neither the plan nor product files. Findings return
+to the doer to record as subtasks and fix.
 
 ## Harness contract
 
-Pi is the default harness and must be installed and authenticated for real
-runs. `--agent <executable>` selects the harness for all three machines;
-`--doer <executable>` optionally overrides only the doer. Paths with spaces
-are supported; quote them in your shell.
-
-Each invocation uses `--print --no-session <prompt>`, runs in the target,
-and names its role in the prompt as `Machine: planner`, `doer`, or `validator`.
+Pi must be installed and authenticated for real runs. Each invocation uses
+`--print --no-session <prompt>`, runs in the target, and names its machine
+in the prompt. Paths with spaces are supported; quote them in your shell.
 The prompt includes absolute seed and plan paths and requests a final JSON
-line. The planner returns a boolean `complete`; the validator returns a
-boolean `satisfied` and an array `findings`. The doer returns a description
-of its work; the factory does not use that result for routing. Machines may
-print commentary; the factory reads the last line that parses as JSON.
-The factory handles Git commits, and machines must not stage or commit.
+line with the boolean fields named by outgoing edges. The validator is also
+asked for an array `findings`. Machines may print commentary; the factory
+reads the last line that parses as JSON. Machines must not stage or commit.
 
 ## Checks
 
@@ -62,15 +72,18 @@ From `factory/`:
 ```
 
 Reqnroll/NUnit runs the unmodified features in `spec/features/`, excluding
-`@real-agent`. Missing step definitions fail the run. Every example gets a
-temporary Git workspace and a copy of the compiled factory. The external
-C# double in `tests/Doubles/` plays all three machines and records their
-calls. It is never shipped in the factory.
+`@real-agent`. Every example gets a temporary Git workspace and a copy of the
+compiled factory, line and machine configurations. The external double in
+`tests/Doubles/` plays the machines and records their calls. It is never
+shipped in the factory.
 
-`./test --real-agent` explicitly selects the real-agent examples.
-Their integration bindings are not implemented by the default homework
-suite; real Tetris generation is the optional follow-up in the homework.
+`./test --real-agent` explicitly selects the real-agent examples. Their
+integration bindings are not implemented; real Tetris generation can be
+tried manually using the command above, followed by:
 
-The factory is in `src/Program.cs`; bindings are in
-`tests/StepDefinitions/FactorySteps.cs`. Generated binaries and Reqnroll
-code stay in ignored build directories.
+```sh
+npm --prefix tetris/tetris-003 start
+```
+
+Routing and graph checks are in `src/AssemblyLine.cs`; execution and commits
+are in `src/Program.cs`; bindings are in `tests/StepDefinitions/FactorySteps.cs`.

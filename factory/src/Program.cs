@@ -1,3 +1,4 @@
+using Factory;
 using System.Diagnostics;
 using System.Text.Json;
 
@@ -5,26 +6,27 @@ try
 {
     if (args is ["--help"] or ["-h"])
     {
-        Console.WriteLine("Usage: factory --seed <file> --target <folder> [--all] [--agent <executable>] [--doer <executable>] [--max-attempts <number>] [--lens <focus>]");
+        Console.WriteLine("Usage: factory --seed <file> --target <folder> [--max-attempts <number>] | --check-line");
+        return 0;
+    }
+    var folder = AppContext.BaseDirectory;
+    // The public launcher supplies the factory folder; copied builds keep config beside the DLL.
+    folder = Environment.GetEnvironmentVariable("FACTORY_CONFIG_DIR") ?? folder;
+    if (args is ["--check-line"])
+    {
+        _ = new AssemblyLine(folder);
+        Console.WriteLine("assembly line accepted");
         return 0;
     }
     string? seed = null, target = null;
-    var agent = "pi";
-    string? doer = null;
-    var lens = "testability";
     var maxAttempts = 3;
-    var all = false;
     for (var i = 0; i < args.Length; i++)
     {
-        if (args[i] == "--all") { all = true; continue; }
         if (i + 1 >= args.Length) throw new Exception("Expected an option value.");
         switch (args[i])
         {
             case "--seed": seed = Path.GetFullPath(args[++i]); break;
             case "--target": target = Path.GetFullPath(args[++i]); break;
-            case "--agent": agent = args[++i]; break;
-            case "--doer": doer = args[++i]; break;
-            case "--lens": lens = args[++i]; break;
             case "--max-attempts":
                 if (!int.TryParse(args[++i], out maxAttempts) || maxAttempts < 1)
                     throw new Exception("The attempt limit must be a positive integer.");
@@ -34,15 +36,18 @@ try
     }
     if (seed == null || !File.Exists(seed)) throw new Exception("There is no seed.");
     if (target == null) throw new Exception("A target is required.");
-    if (agent.Contains(Path.DirectorySeparatorChar)) agent = Path.GetFullPath(agent);
-    if (doer != null && doer.Contains(Path.DirectorySeparatorChar)) doer = Path.GetFullPath(doer);
+    var line = new AssemblyLine(folder);
     Directory.CreateDirectory(target);
     if ((await Run("git", target, "rev-parse", "--show-toplevel")).Code != 0)
         await Git(target, "init");
     var plan = Path.Combine(target, ".factory", "plan.md");
     async Task<JsonElement> Machine(string role, string instructions)
     {
-        var executable = role == "doer" ? doer ?? agent : agent;
+        var executable = line.Machines[role].Harness ?? "pi";
+        if (executable.Contains(Path.DirectorySeparatorChar) && !Path.IsPathRooted(executable))
+            executable = Path.GetFullPath(executable, folder);
+        var fields = line.Edges.Where(e => e.From == role && e.Field != null)
+            .Select(e => $"\"{e.Field}\"").Distinct();
         var prompt = $"""
             Machine: {role}
             Work only in the current target directory.
@@ -50,6 +55,7 @@ try
             Plan: {plan}
             Do not stage or commit: the factory handles Git.
             {instructions}
+            Return boolean result fields: {string.Join(", ", fields)}.
             Finish with a single line of JSON. Do not wrap it in Markdown.
             """;
         (int Code, string Out, string Error) response;
@@ -65,62 +71,64 @@ try
             try { result = JsonSerializer.Deserialize<JsonElement>(line); }
             catch (JsonException) { }
         }
+        if (result.ValueKind != JsonValueKind.Object)
+            throw new Exception($"Could not read the {role}'s result.");
         return result;
     }
 
-    async Task<bool> Planner(bool committed = false)
-    {
-        var result = await Machine("planner", $"""
-            Read the seed and maintain the plan. If it is missing, create tasks from the seed only.
-            {(committed ? "The current task's validated work has been committed. Mark that task and its resolved subtasks done." : "Inspect the plan without marking unfinished tasks done. Do not perform product work.")}
-            Return the boolean field "complete": true only when no tasks remain.
-            """);
-        return BooleanResult(result, "planner", "complete");
-    }
-
-    do
+    var current = line.Next("start", default);
+    var attempts = 0;
+    var pendingWork = false;
+    var findings = "[]";
+    while (current != "finish")
     {
         var hadPlan = File.Exists(plan);
-        var complete = await Planner();
-        if (complete || !hadPlan)
+        var committed = current == "planner" && pendingWork;
+        if (committed) await Commit(target, "Factory work");
+        if (current == "doer" && ++attempts > maxAttempts)
+            throw new Exception($"The task hit its limit of {maxAttempts} attempts.");
+        var instructions = current switch
         {
-            await Commit(target, "Factory plan");
-            if (complete || !all) break;
-            continue;
-        }
-        var findings = "[]";
-        for (var attempt = 1; ; attempt++)
-        {
-            await Machine("doer", $"""
+            "planner" => $"""
+                Read the seed and maintain the plan. If it is missing, create tasks from the seed only.
+                {(committed ? "The current task's validated work has been committed. Mark that task and its resolved subtasks done." : "Inspect the plan without marking unfinished tasks done. Do not perform product work.")}
+                Return "complete": true only when no tasks remain.
+                """,
+            "doer" => $"""
                 Read the seed and the plan. Implement only the first unfinished task.
                 Do not mark the task done; the planner does that after the work is committed.
                 Validator findings: {findings}
                 Record each finding as a subtask of the current task, not as a new top-level task,
                 and fix it before asking for validation again.
                 Return a JSON result describing the work performed.
-                """);
-            // A temporary index includes untracked files in the diff without changing
-            // the real index or disturbing unrelated staged changes.
-            var work = await WorkDiff(target);
-            var verdict = await Machine("validator", $"""
-                Check only the current task's work below using this lens: {lens}.
+                """,
+            "validator" => $"""
+                Check only the current task's work below using this lens: {line.Machines[current].Lens}.
                 Report findings only. Change neither the plan nor the product files.
-                Return boolean "satisfied" and an array "findings" explaining any problems.
+                Return an array "findings" explaining any problems, alongside the routing fields.
                 Current task's work (Git diff against HEAD):
-                {work}
-                """);
-            var satisfied = BooleanResult(verdict, "validator", "satisfied");
-            if (!verdict.TryGetProperty("findings", out var reported) || reported.ValueKind != JsonValueKind.Array)
+                {await WorkDiff(target)}
+                """,
+            _ => "Read the seed and plan and perform your machine's work."
+        };
+        var result = await Machine(current, instructions);
+        var next = line.Next(current, result);
+        if (current == "planner")
+        {
+            if (!hadPlan || committed || next == "finish") await Commit(target, "Factory plan");
+            pendingWork = false;
+            attempts = 0;
+            findings = "[]";
+        }
+        if (current == "doer") pendingWork = true;
+        if (current == "validator")
+        {
+            if (!result.TryGetProperty("findings", out var reported) || reported.ValueKind != JsonValueKind.Array)
                 throw new Exception("Could not read the validator's result.");
-            if (satisfied) break;
-            if (attempt >= maxAttempts) throw new Exception($"The pass hit its limit of {maxAttempts} attempts.");
             findings = reported.GetRawText();
         }
-        await Commit(target, "Factory work");
-        complete = await Planner(committed: true);
-        await Commit(target, "Factory plan");
-        if (complete) break;
-    } while (all);
+        current = next;
+    }
     Console.WriteLine("factory stopped");
     return 0;
 }
@@ -128,14 +136,6 @@ catch (Exception error)
 {
     Console.Error.WriteLine(error.Message);
     return 1;
-}
-
-static bool BooleanResult(JsonElement result, string role, string field)
-{
-    if (result.ValueKind != JsonValueKind.Object || !result.TryGetProperty(field, out var value)
-        || value.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
-        throw new Exception($"Could not read the {role}'s result.");
-    return value.GetBoolean();
 }
 
 static async Task Commit(string target, string message)
