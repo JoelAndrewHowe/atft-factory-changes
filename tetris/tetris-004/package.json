@@ -7,7 +7,12 @@
     "start": "node index.js",
     "test": "node --test"
   },
-  "keywords": ["tetris", "terminal", "game"],
+  "keywords": [
+    "tetris",
+    "terminal",
+    "game"
+  ],
   "author": "",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {}
 }
