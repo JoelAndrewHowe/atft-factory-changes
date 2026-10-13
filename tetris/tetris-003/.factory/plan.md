@@ -10,9 +10,9 @@
   - [x] Decouple main from process.stdin, process.stdout, and process.exit(0)
   - [x] Expose colors toggle in main() and render() instead of hardcoding true
 - [x] Implement Tetris pieces (tetrominoes) and their rotations
-- [ ] Implement piece movement (left, right, down) and collision detection
-- [ ] Implement automatic falling and hard drop
+- [x] Implement piece movement (left, right, down) and collision detection
+- [x] Implement automatic falling and hard drop
 - [x] Implement line clearing
-- [ ] Implement scoring (lines cleared, level, etc.)
-- [ ] Implement game-over detection and display a game-over message
-- [ ] Verify the game starts with `npm start` and total display fits within 24 rows
+- [x] Implement scoring (lines cleared)
+- [x] Implement game-over detection and display a game-over message
+- [x] Verify the game starts with `npm start` and total display fits within 24 rows
