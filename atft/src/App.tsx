@@ -193,7 +193,7 @@ function FixtureDisplay() {
   const responseJson = JSON.stringify(learnerResponseBody, null, 2)
 
   return (
-    <div className="code-panel">
+    <div className="code-panel" data-testid="fixture-panel">
       <div className="code-filename">API Contract</div>
       <div className="fixture-section">
         <p className="fixture-label">Request</p>
@@ -248,7 +248,7 @@ function SimulationView({ gapValues }: { gapValues: Record<string, Record<string
   )
 
   return (
-    <div className="simulation-panel">
+    <div className="simulation-panel" data-testid="simulation-panel">
       <div className="sim-tabs" role="tablist">
         {SIMULATION_TABS.map((t) => (
           <button
@@ -263,7 +263,7 @@ function SimulationView({ gapValues }: { gapValues: Record<string, Record<string
         ))}
       </div>
       {tab !== 'results' ? (
-        <pre className="code-pre">
+        <pre className="code-pre" data-testid="simulation-tab-content">
           <code>{assembledFiles[tab] ?? ''}</code>
         </pre>
       ) : (
@@ -287,14 +287,14 @@ function SimulationView({ gapValues }: { gapValues: Record<string, Record<string
             },
           ].map((r, i) => (
             <div key={i} className="step-result">
-              <span className="pass-badge">Simulated pass</span>
+              <span className="pass-badge" data-testid="pass-badge">Simulated pass</span>
               <div>
                 <div className="step-text">{r.step}</div>
                 <div className="step-explanation">{r.explanation}</div>
               </div>
             </div>
           ))}
-          <div className="recap">
+          <div className="recap" data-testid="recap">
             <p>
               <strong>Recap</strong>
             </p>
@@ -322,8 +322,46 @@ export default function App() {
   const [checkResults, setCheckResults] = useState<Record<string, ValidationResult>>({})
   const [resetDialogOpen, setResetDialogOpen] = useState(false)
   const [liveMessage, setLiveMessage] = useState('')
+  const prevLessonIdRef = useRef<string>(persisted.currentLessonId)
   const inputRefs = useRef(new Map<string, HTMLInputElement>())
   const mainRef = useRef<HTMLDivElement>(null)
+  const resetButtonRef = useRef<HTMLButtonElement>(null)
+  const resetDialogRef = useRef<HTMLDivElement>(null)
+  const dialogHeadingRef = useRef<HTMLHeadingElement>(null)
+  const prevDialogOpen = useRef(false)
+
+  // Reconstruct checkResults for completed lessons on mount / navigation
+  useEffect(() => {
+    const lesson = getLessonById(persisted.currentLessonId)
+    if (!lesson || lesson.type !== 'coding') return
+    const currentGaps = persisted.gapValues[lesson.id] ?? {}
+    const lastChecked = persisted.lastCheckedValues[lesson.id] ?? {}
+
+    const hasChecked = lesson.editableGaps.some((gapId) => lastChecked[gapId] !== undefined)
+    if (!hasChecked) return
+
+    const allMatch = lesson.editableGaps.every(
+      (gapId) => currentGaps[gapId] === lastChecked[gapId],
+    )
+
+    if (allMatch) {
+      const results = validateGaps(
+        lesson.editableGaps,
+        currentGaps as Record<string, string>,
+      )
+      setCheckResults(results)
+    }
+  }, [persisted.currentLessonId])
+
+  // Focus main heading after lesson navigation (skip initial mount)
+  useEffect(() => {
+    if (prevLessonIdRef.current === persisted.currentLessonId) return
+    prevLessonIdRef.current = persisted.currentLessonId
+    const h = mainRef.current?.querySelector('h2') as HTMLElement | null
+    if (h) {
+      h.focus()
+    }
+  }, [persisted.currentLessonId])
 
   const progress = useMemo(
     () =>
@@ -366,22 +404,40 @@ export default function App() {
     return () => clearTimeout(t)
   }, [loadError])
 
+  // Focus dialog heading when dialog opens
+  useEffect(() => {
+    if (resetDialogOpen && dialogHeadingRef.current) {
+      dialogHeadingRef.current.focus()
+    }
+  }, [resetDialogOpen])
+
+  // Restore focus to reset button when dialog closes
+  useEffect(() => {
+    if (prevDialogOpen.current && !resetDialogOpen) {
+      resetButtonRef.current?.focus()
+    }
+    prevDialogOpen.current = resetDialogOpen
+  }, [resetDialogOpen])
+
+  const goToLesson = useCallback(
+    (lessonId: string) => {
+      if (!getLessonById(lessonId)) return
+      setPersisted((p) => ({ ...p, currentLessonId: lessonId }))
+      setShowSolution(false)
+      setCheckResults({})
+      setLiveMessage('')
+    },
+    [],
+  )
+
   const navigateTo = useCallback(
     (lessonId: string) => {
       if (!getLessonById(lessonId)) return
       const status = progress.lessonStatuses[lessonId]
       if (status === 'locked') return
-      setPersisted((p) => ({ ...p, currentLessonId: lessonId }))
-      setShowSolution(false)
-      setCheckResults({})
-      setLiveMessage('')
-      // Focus main heading after navigation
-      requestAnimationFrame(() => {
-        const h = mainRef.current?.querySelector('h2')
-        h?.focus()
-      })
+      goToLesson(lessonId)
     },
-    [progress.lessonStatuses],
+    [progress.lessonStatuses, goToLesson],
   )
 
   const handleGapChange = useCallback(
@@ -406,18 +462,25 @@ export default function App() {
   )
 
   const handleContinue = useCallback(() => {
+    const next = lessons.find((l) => l.number === currentLesson.number + 1)
+    if (!next) return
+
     if (currentLesson.type === 'reading') {
       setPersisted((p) => ({
         ...p,
         readingComplete: true,
-        highestUnlockedLesson: Math.max(p.highestUnlockedLesson, currentLesson.number + 1),
+        highestUnlockedLesson: Math.max(p.highestUnlockedLesson, next.number),
       }))
+      goToLesson(next.id)
+    } else if (currentStatus === 'complete') {
+      // Ensure next lesson is unlocked even if handleCheck missed it
+      setPersisted((p) => ({
+        ...p,
+        highestUnlockedLesson: Math.max(p.highestUnlockedLesson, next.number),
+      }))
+      goToLesson(next.id)
     }
-    const next = lessons.find((l) => l.number === currentLesson.number + 1)
-    if (next) {
-      navigateTo(next.id)
-    }
-  }, [currentLesson, navigateTo])
+  }, [currentLesson, currentStatus, goToLesson])
 
   const handleCheck = useCallback(() => {
     if (currentLesson.type !== 'coding') return
@@ -538,6 +601,7 @@ export default function App() {
                     aria-current={isCurrent ? 'page' : undefined}
                     aria-disabled={!clickable}
                     disabled={!clickable}
+                    aria-label={`Lesson ${lesson.number}: ${lesson.title}`}
                   >
                     <span className="lesson-number">{lesson.number}</span>
                     <span className="lesson-title">{lesson.title}</span>
@@ -552,6 +616,7 @@ export default function App() {
         </nav>
         <div className="sidebar-footer">
           <button
+            ref={resetButtonRef}
             className="text-button"
             onClick={() => setResetDialogOpen(true)}
           >
@@ -575,7 +640,7 @@ export default function App() {
           <h2 tabIndex={-1}>
             Lesson {currentLesson.number}: {currentLesson.title}
           </h2>
-          <span className={`status-badge ${currentStatus}`}>
+          <span className={`status-badge ${currentStatus}`} data-testid="lesson-status-badge">
             {statusLabel(currentStatus)}
           </span>
         </header>
@@ -587,7 +652,7 @@ export default function App() {
         </div>
 
         {currentLesson.number === 1 && (
-          <div className="simulation-label" role="note">
+          <div className="simulation-label" role="note" data-testid="simulation-label">
             Simulation only — no code runs or API requests are sent
           </div>
         )}
@@ -606,15 +671,15 @@ export default function App() {
         )}
 
         {currentLesson.type === 'coding' && Object.keys(checkResults).length > 0 && (
-          <div className="feedback-area">
+          <div className="feedback-area" data-testid="feedback-area">
             {allValid(checkResults as Record<string, ValidationResult>) ? (
-              <p className="check-summary success">
+              <p className="check-summary success" data-testid="check-summary-success">
                 <span aria-hidden="true">✓</span> All gaps are correct. You
                 can continue.
               </p>
             ) : (
               <div>
-                <p className="check-summary error">
+                <p className="check-summary error" data-testid="check-summary-error">
                   <span aria-hidden="true">✗</span>{' '}
                   {Object.values(checkResults).filter((r) => !r.valid).length} gap
                   {Object.values(checkResults).filter((r) => !r.valid).length === 1
@@ -626,7 +691,7 @@ export default function App() {
                   {currentLesson.editableGaps
                     .filter((id) => !checkResults[id]?.valid)
                     .map((id) => (
-                      <li key={id}>
+                      <li key={id} data-testid="feedback-item">
                         <strong>{gapDefinitions[id]?.label ?? id}:</strong>{' '}
                         {checkResults[id]?.feedback}
                       </li>
@@ -678,7 +743,7 @@ export default function App() {
         </div>
 
         {showSolution && currentLesson.codeFile && (
-          <div className="side-panel">
+          <div className="side-panel" data-testid="solution-panel">
             <div className="side-panel-title">Solution for your exercise</div>
             <pre className="code-pre">
               <code>{solutionCode}</code>
@@ -711,7 +776,7 @@ export default function App() {
         )}
 
         {persisted.simulationComplete && (
-          <div className="tutorial-complete">
+          <div className="tutorial-complete" data-testid="tutorial-complete">
             <p>
               <strong>Tutorial complete!</strong>
             </p>
@@ -735,16 +800,19 @@ export default function App() {
 
       {resetDialogOpen && (
         <div
+          ref={resetDialogRef}
           className="modal-overlay"
           role="dialog"
           aria-modal="true"
           aria-labelledby="reset-title"
           onClick={(e) => {
-            if (e.target === e.currentTarget) setResetDialogOpen(false)
+            if (e.target === e.currentTarget) {
+              setResetDialogOpen(false)
+            }
           }}
         >
           <div className="modal-dialog">
-            <h3 id="reset-title">Start over</h3>
+            <h3 id="reset-title" tabIndex={-1} ref={dialogHeadingRef}>Start over</h3>
             <p>
               This tutorial&apos;s saved answers and progress will be cleared.
               This cannot be undone.
@@ -752,7 +820,9 @@ export default function App() {
             <div className="modal-buttons">
               <button
                 className="action-button action-button-secondary"
-                onClick={() => setResetDialogOpen(false)}
+                onClick={() => {
+                  setResetDialogOpen(false)
+                }}
               >
                 Cancel
               </button>

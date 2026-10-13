@@ -607,3 +607,6 @@ export function getLessonById(id: string): LessonData | undefined {
 export function getLessonByNumber(num: number): LessonData | undefined {
   return lessons.find((l) => l.number === num);
 }
+
+
+
