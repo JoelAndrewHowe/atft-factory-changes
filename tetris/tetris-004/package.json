@@ -1,0 +1,13 @@
+{
+  "name": "tetris-004",
+  "version": "1.0.0",
+  "description": "Terminal Tetris game",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "node --test"
+  },
+  "keywords": ["tetris", "terminal", "game"],
+  "author": "",
+  "license": "MIT"
+}
