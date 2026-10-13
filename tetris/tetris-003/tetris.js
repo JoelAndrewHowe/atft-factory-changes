@@ -139,15 +139,65 @@ function clearLines(board) {
   return linesCleared;
 }
 
+function tryMove(board, piece, dx, dy) {
+  const newX = piece.x + dx;
+  const newY = piece.y + dy;
+  if (canPlace(board, piece.shape, newX, newY)) {
+    return { ...piece, x: newX, y: newY };
+  }
+  return null;
+}
+
+function moveLeft(board, piece) {
+  return tryMove(board, piece, -1, 0);
+}
+
+function moveRight(board, piece) {
+  return tryMove(board, piece, 1, 0);
+}
+
+function moveDown(board, piece) {
+  return tryMove(board, piece, 0, 1);
+}
+
+function spawnPiece(random = Math.random) {
+  const types = Object.keys(TETROMINOES);
+  const type = types[Math.floor(random() * types.length)];
+  return createPiece(type);
+}
+
+function tryRotate(board, piece) {
+  const rotated = rotatePiece(piece);
+  if (canPlace(board, rotated.shape, rotated.x, rotated.y)) {
+    return rotated;
+  }
+  return null;
+}
+
+function lockAndClear(board, piece, spawnPieceFn) {
+  const newBoard = board.map((row) => [...row]);
+  lockPiece(newBoard, piece);
+  const linesCleared = clearLines(newBoard);
+  const nextPiece = spawnPieceFn();
+  const gameOver = !canPlace(newBoard, nextPiece.shape, nextPiece.x, nextPiece.y);
+  return { board: newBoard, linesCleared, nextPiece, gameOver };
+}
+
 module.exports = {
   BOARD_WIDTH,
   BOARD_HEIGHT,
   TETROMINOES,
   createBoard,
   createPiece,
+  spawnPiece,
   rotateMatrix,
   rotatePiece,
+  tryRotate,
   canPlace,
   lockPiece,
   clearLines,
+  lockAndClear,
+  moveLeft,
+  moveRight,
+  moveDown,
 };
