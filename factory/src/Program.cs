@@ -6,25 +6,23 @@ try
 {
     if (args is ["--help"] or ["-h"])
     {
-        Console.WriteLine("Usage: factory --seed <file> --target <folder> [--max-attempts <number>] | --check-line");
+        Console.WriteLine("Usage: factory --run <name> [--seed <file> --target <folder> --line <name>] [--max-attempts <number>] | --check-line --target <folder> --line <name>");
         return 0;
     }
     var folder = AppContext.BaseDirectory;
     // The public launcher supplies the factory folder; copied builds keep config beside the DLL.
     folder = Environment.GetEnvironmentVariable("FACTORY_CONFIG_DIR") ?? folder;
-    if (args is ["--check-line"])
-    {
-        _ = new AssemblyLine(folder);
-        Console.WriteLine("assembly line accepted");
-        return 0;
-    }
-    string? seed = null, target = null;
+    string? seed = null, target = null, runName = null, lineName = null;
+    var checkLine = false;
     var maxAttempts = 3;
     for (var i = 0; i < args.Length; i++)
     {
+        if (args[i] == "--check-line") { checkLine = true; continue; }
         if (i + 1 >= args.Length) throw new Exception("Expected an option value.");
         switch (args[i])
         {
+            case "--run": runName = args[++i]; break;
+            case "--line": lineName = args[++i]; break;
             case "--seed": seed = Path.GetFullPath(args[++i]); break;
             case "--target": target = Path.GetFullPath(args[++i]); break;
             case "--max-attempts":
@@ -34,23 +32,35 @@ try
             default: throw new Exception($"Unknown option: {args[i]}");
         }
     }
-    if (seed == null || !File.Exists(seed)) throw new Exception("There is no seed.");
-    if (target == null) throw new Exception("A target is required.");
-    var line = new AssemblyLine(folder);
-    Directory.CreateDirectory(target);
+    if (checkLine)
+    {
+        if (target == null || lineName == null) throw new Exception("A target and line are required.");
+        FactoryRun.CheckName(lineName);
+        _ = new AssemblyLine(target, lineName);
+        Console.WriteLine("assembly line accepted");
+        return 0;
+    }
+    if (runName == null) throw new Exception("A run name is required.");
+    var run = FactoryRun.Open(folder, runName, seed, target, lineName);
+    (seed, target, lineName) = run;
+    if (!File.Exists(seed)) throw new Exception("There is no seed.");
+    var line = new AssemblyLine(target, lineName);
     if ((await Run("git", target, "rev-parse", "--show-toplevel")).Code != 0)
         await Git(target, "init");
-    var plan = Path.Combine(target, ".factory", "plan.md");
+    run.Save(folder, runName);
+    var plan = Path.Combine(folder, "runs", runName, "plan.md");
     async Task<JsonElement> Machine(string role, string instructions)
     {
         var executable = line.Machines[role].Harness ?? "pi";
         if (executable.Contains(Path.DirectorySeparatorChar) && !Path.IsPathRooted(executable))
-            executable = Path.GetFullPath(executable, folder);
+            executable = Path.GetFullPath(executable, Path.Combine(target, ".assembly-lines", ".machines", role));
         var fields = line.Edges.Where(e => e.From == role && e.Field != null)
             .Select(e => $"\"{e.Field}\"").Distinct();
         var prompt = $"""
             Machine: {role}
-            Work only in the current target directory.
+            Write product work only in the current target directory.
+            The planner and doer may also update the run plan at the path below.
+            Do not modify .assembly-lines/ or the run settings.
             Seed: {seed}
             Plan: {plan}
             Do not stage or commit: the factory handles Git.
@@ -82,7 +92,6 @@ try
     var findings = "[]";
     while (current != "finish")
     {
-        var hadPlan = File.Exists(plan);
         var committed = current == "planner" && pendingWork;
         if (committed) await Commit(target, "Factory work");
         if (current == "doer" && ++attempts > maxAttempts)
@@ -115,7 +124,6 @@ try
         var next = line.Next(current, result);
         if (current == "planner")
         {
-            if (!hadPlan || committed || next == "finish") await Commit(target, "Factory plan");
             pendingWork = false;
             attempts = 0;
             findings = "[]";
@@ -140,9 +148,9 @@ catch (Exception error)
 
 static async Task Commit(string target, string message)
 {
-    await Git(target, "add", "--all", "--", ".");
-    var changes = await Run("git", target, "diff", "--cached", "--quiet", "--", ".");
-    if (changes.Code == 1) await Git(target, "commit", "--only", "-m", message, "--", ".");
+    await Git(target, "add", "--all", "--", ".", ":(exclude).assembly-lines");
+    var changes = await Run("git", target, "diff", "--cached", "--quiet", "--", ".", ":(exclude).assembly-lines");
+    if (changes.Code == 1) await Git(target, "commit", "--only", "-m", message, "--", ".", ":(exclude).assembly-lines");
     else if (changes.Code != 0) throw new Exception(changes.Error);
 }
 
@@ -157,9 +165,13 @@ static async Task<string> WorkDiff(string target)
             if (result.Code != 0) throw new Exception(result.Error.Trim());
             return result.Out;
         }
-        await IndexedGit("read-tree", "HEAD");
-        await IndexedGit("add", "--all", "--", ".");
-        return await IndexedGit("diff", "--cached", "--no-ext-diff", "--no-color", "HEAD", "--", ".", ":(exclude).factory/plan.md");
+        var hasHead = (await Run("git", target, "rev-parse", "--verify", "HEAD")).Code == 0;
+        await IndexedGit("read-tree", hasHead ? "HEAD" : "--empty");
+        await IndexedGit("add", "--all", "--", ".", ":(exclude).assembly-lines");
+        var arguments = new List<string> { "diff", "--cached", "--no-ext-diff", "--no-color" };
+        if (hasHead) arguments.Add("HEAD");
+        arguments.AddRange(["--", ".", ":(exclude).assembly-lines"]);
+        return await IndexedGit(arguments.ToArray());
     }
     finally { File.Delete(index); File.Delete(index + ".lock"); }
 }

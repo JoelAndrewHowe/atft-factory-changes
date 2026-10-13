@@ -15,9 +15,10 @@ public sealed class AssemblyLine
     public List<Edge> Edges { get; } = new();
     public Dictionary<string, MachineConfig> Machines { get; } = new();
 
-    public AssemblyLine(string folder)
+    public AssemblyLine(string target, string name)
     {
-        var graph = File.ReadAllText(Path.Combine(folder, "assembly-line.dot"));
+        var folder = Path.Combine(target, ".assembly-lines");
+        var graph = File.ReadAllText(Path.Combine(folder, name + ".dot"));
         var body = Regex.Match(graph, @"\Adigraph\s+\w+\s*\{([\s\S]*)\}\s*\z");
         if (!body.Success) throw new Exception("Expected a Graphviz digraph.");
         foreach (var statement in body.Groups[1].Value.Split(['\n', ';'], StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
@@ -30,7 +31,7 @@ public sealed class AssemblyLine
         var nodes = Edges.SelectMany(e => new[] { e.From, e.To }).Distinct().ToArray();
         foreach (var node in nodes.Where(n => n is not ("start" or "finish")))
         {
-            var path = Path.Combine(folder, node + ".json");
+            var path = Path.Combine(folder, ".machines", node, "config.json");
             if (!File.Exists(path)) throw new Exception($"No machine called \"{node}\".");
             Machines[node] = JsonSerializer.Deserialize<MachineConfig>(File.ReadAllText(path),
                 new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;

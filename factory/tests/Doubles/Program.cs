@@ -30,7 +30,7 @@ if (role == "validator")
     Console.WriteLine(JsonSerializer.Serialize(new { satisfied, findings = satisfied ? Array.Empty<string>() : new[] { "Extract the task logic into a testable function." } }));
     return;
 }
-var plan = Path.Combine(Directory.GetCurrentDirectory(), ".factory", "plan.md");
+var plan = prompt.Split('\n').First(line => line.StartsWith("Plan: "))[6..].Trim();
 var prose = Environment.GetEnvironmentVariable("DOUBLE_PROSE_PLAN") == "1";
 string Format(Dictionary<string, bool> items) => prose
     ? string.Join("\n", items.Select(t => $"Task {t.Key} is {(t.Value ? "finished" : "waiting")}."))
