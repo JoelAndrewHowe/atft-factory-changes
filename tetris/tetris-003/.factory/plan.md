@@ -5,6 +5,10 @@
 - [x] Initialize Node.js project with `package.json` and an `npm start` script
 - [x] Install terminal rendering/control packages if needed
 - [ ] Render the game board, borders, score, and controls within 24 terminal rows
+  - [x] Fix clearScreen hardcoding process.stdout.write to make side effects observable
+  - [x] Separate board/piece projection from terminal presentation (borders, colors, padding)
+  - [x] Decouple main from process.stdin, process.stdout, and process.exit(0)
+  - [ ] Expose colors toggle in main() and render() instead of hardcoding true
 - [x] Implement Tetris pieces (tetrominoes) and their rotations
 - [ ] Implement piece movement (left, right, down) and collision detection
 - [ ] Implement automatic falling and hard drop
