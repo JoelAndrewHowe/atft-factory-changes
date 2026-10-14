@@ -112,3 +112,5 @@ the commands above.
 
 Execution and commits are in `src/Program.cs`, graph routing in
 `src/AssemblyLine.cs`, and saved run settings in `src/FactoryRun.cs`.
+
+For concurrent review branches and results-only synthesis, see [Iteration 5: fan out](FAN-OUT.md).

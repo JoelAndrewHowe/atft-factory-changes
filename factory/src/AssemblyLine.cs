@@ -3,7 +3,7 @@ using System.Text.RegularExpressions;
 
 namespace Factory;
 
-public record MachineConfig(string? Harness = null, string Lens = "testability");
+public record MachineConfig(string? Harness = null, string Lens = "testability", string? Instructions = null, string? Role = null, string? Provider = null, string? Model = null);
 public record Edge(string From, string To, string? Label)
 {
     public string? Field => Label?.StartsWith("not ") == true ? Label[4..] : Label;
@@ -14,6 +14,7 @@ public sealed class AssemblyLine
 {
     public List<Edge> Edges { get; } = new();
     public Dictionary<string, MachineConfig> Machines { get; } = new();
+    public Dictionary<string, (string[] Branches, string Join)> FanOuts { get; } = new();
 
     public AssemblyLine(string target, string name)
     {
@@ -39,6 +40,17 @@ public sealed class AssemblyLine
         if (Edges.Count(e => e.From == "start") != 1 || Edges.Any(e => e.To == "start" || e.From == "finish")
             || Edges.Any(e => e.To == "finish" && e.From != "planner"))
             throw new Exception("The line must start at start and finish through the planner.");
+        foreach (var group in Edges.GroupBy(e => e.From).Where(g => g.Count() > 1 && g.All(e => e.Label == null)))
+        {
+            var branches = group.Select(e => e.To).ToArray();
+            var exits = branches.Select(branch => Edges.Where(e => e.From == branch).ToArray()).ToArray();
+            if (branches.Distinct().Count() != branches.Length
+                || exits.Any(edges => edges.Length != 1 || edges[0].Label != null)
+                || exits.Select(edges => edges[0].To).Distinct().Count() != 1
+                || !Machines.ContainsKey(exits[0][0].To))
+                throw new Exception($"The branches from {group.Key} do not meet.");
+            FanOuts[group.Key] = (branches, exits[0][0].To);
+        }
         var reachable = new HashSet<string> { "finish" };
         while (true)
         {

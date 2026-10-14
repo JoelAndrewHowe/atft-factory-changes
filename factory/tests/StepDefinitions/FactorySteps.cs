@@ -4,7 +4,7 @@ using System.Text.Json;
 namespace Factory.Tests;
 
 [Binding]
-public sealed class FactorySteps
+public sealed partial class FactorySteps
 {
     private string workspace = null!, repo = null!, target = null!, seed = null!;
     private string? harness, doerHarness;
@@ -239,7 +239,7 @@ public sealed class FactorySteps
     }
 
     private JsonElement[] Calls() => Directory.Exists(Path.Combine(workspace, "calls"))
-        ? Directory.GetFiles(Path.Combine(workspace, "calls")).Order().Select(f => JsonSerializer.Deserialize<JsonElement>(File.ReadAllText(f))).ToArray()
+        ? Directory.GetFiles(Path.Combine(workspace, "calls"), "*.json").Order().Select(f => JsonSerializer.Deserialize<JsonElement>(File.ReadAllText(f))).ToArray()
         : [];
 
     [Given("no target is chosen")]
@@ -512,7 +512,11 @@ public sealed class FactorySteps
     public void SecondTaskValidation() => Assert.That(Prompt("validator"), Does.Contain("+Work for beta"));
 
     [Then("it was not given the work for the first task")]
-    public void NoFirstTaskValidation() => Assert.That(Prompt("validator"), Does.Not.Contain("Work for alpha"));
+    public void NoFirstTaskValidation()
+    {
+        foreach (var role in lastInspectedMachines)
+            Assert.That(Prompt(role), Does.Not.Contain("Work for alpha"));
+    }
 
     [Then("the doer was given the validator's findings")]
     public void FindingsReturned()

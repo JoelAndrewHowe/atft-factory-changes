@@ -4,11 +4,58 @@ var workspace = Environment.GetEnvironmentVariable("DOUBLE_WORKSPACE")!;
 var calls = Path.Combine(workspace, "calls");
 Directory.CreateDirectory(calls);
 var prompt = args.Last();
-var role = prompt.Split('\n').First(line => line.StartsWith("Machine: "))[9..].Trim();
-var priorCalls = Directory.GetFiles(calls).Select(file =>
+var role = Environment.GetEnvironmentVariable("FACTORY_MACHINE") ?? prompt.Split('\n').First(line => line.StartsWith("Machine: "))[9..].Trim();
+var priorCalls = Directory.GetFiles(calls, "*.json").Select(file =>
     JsonSerializer.Deserialize<JsonElement>(File.ReadAllText(file))).ToArray();
-File.WriteAllText(Path.Combine(calls, $"{priorCalls.Length:D4}.json"),
-    JsonSerializer.Serialize(new { agent = args[0], role, cwd = Directory.GetCurrentDirectory(), args = args.Skip(1) }));
+var callPath = Path.Combine(calls, $"{DateTime.UtcNow.Ticks:D19}-{Guid.NewGuid()}.json");
+File.WriteAllText(callPath + ".tmp",
+    JsonSerializer.Serialize(new { agent = args[0], role, cwd = Directory.GetCurrentDirectory(),
+        args = args.Skip(1) }));
+
+File.Move(callPath + ".tmp", callPath);
+
+if (role.StartsWith("reviewer_"))
+{
+    File.WriteAllText(Path.Combine(workspace, role + ".pid"), Environment.ProcessId.ToString());
+    if (Environment.GetEnvironmentVariable("DOUBLE_REVIEW_BARRIER") == "1")
+    {
+        // An explicit IPC barrier: no reviewer can finish before all have arrived.
+        using var server = new System.IO.Pipes.NamedPipeServerStream(
+            Path.GetFileName(workspace) + role, System.IO.Pipes.PipeDirection.In, 2,
+            System.IO.Pipes.PipeTransmissionMode.Byte, System.IO.Pipes.PipeOptions.Asynchronous);
+        var accept = Task.Run(async () => {
+            for (var i = 0; i < 2; i++) { await server.WaitForConnectionAsync(); server.Disconnect(); }
+        });
+        foreach (var other in new[] { "reviewer_1", "reviewer_2", "reviewer_3" }.Where(n => n != role))
+        {
+            using var client = new System.IO.Pipes.NamedPipeClientStream(".", Path.GetFileName(workspace) + other,
+                System.IO.Pipes.PipeDirection.Out);
+            client.Connect(10000);
+        }
+        await accept;
+    }
+    if (role != "reviewer_2" && Environment.GetEnvironmentVariable("DOUBLE_HOLD_REVIEWERS") == "1")
+    {
+        using var hold = new System.IO.Pipes.NamedPipeServerStream(Path.GetFileName(workspace) + role + "-hold",
+            System.IO.Pipes.PipeDirection.In);
+        hold.WaitForConnection();
+    }
+    if (role == "reviewer_2" && Environment.GetEnvironmentVariable("DOUBLE_REVIEW_FAILURE") == "crash")
+    { Console.Error.WriteLine("Reviewer crashed."); Environment.ExitCode = 1; return; }
+    if (role == "reviewer_2" && Environment.GetEnvironmentVariable("DOUBLE_REVIEW_FAILURE") == "prose")
+    { Console.WriteLine("No structured result."); return; }
+    var reports = JsonSerializer.Deserialize<string[]>(Environment.GetEnvironmentVariable("DOUBLE_REPORTS") ?? "[\"\",\"\",\"\"]")!;
+    var report = reports[int.Parse(role[^1..]) - 1];
+    Console.WriteLine(JsonSerializer.Serialize(new { satisfied = report == "", findings = report == "" ? Array.Empty<string>() : new[] { report } }));
+    return;
+}
+if (role == "synthesiser")
+{
+    var mode = Environment.GetEnvironmentVariable("DOUBLE_SYNTHESIS");
+    var satisfied = mode != "never" && (mode != "retry" || priorCalls.Any(c => c.GetProperty("role").GetString() == role));
+    Console.WriteLine(JsonSerializer.Serialize(new { satisfied, findings = satisfied ? Array.Empty<string>() : new[] { "Resolve the synthesiser finding." } }));
+    return;
+}
 
 // These machines implement the scenario's behavior outside the factory. Prompt
 // assertions independently check that the factory actually requests each result.

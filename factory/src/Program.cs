@@ -49,27 +49,39 @@ try
         await Git(target, "init");
     run.Save(folder, runName);
     var plan = Path.Combine(folder, "runs", runName, "plan.md");
-    async Task<JsonElement> Machine(string role, string instructions)
+    async Task<JsonElement> Machine(string role, string instructions, bool reportsOnly = false, CancellationToken cancellation = default)
     {
         var executable = line.Machines[role].Harness ?? "pi";
         if (executable.Contains(Path.DirectorySeparatorChar) && !Path.IsPathRooted(executable))
             executable = Path.GetFullPath(executable, Path.Combine(target, ".assembly-lines", ".machines", role));
         var fields = line.Edges.Where(e => e.From == role && e.Field != null)
             .Select(e => $"\"{e.Field}\"").Distinct();
-        var prompt = $"""
-            Machine: {role}
+        var context = reportsOnly ? "Use only the branch results below. Do not read or modify files." : $"""
             Write product work only in the current target directory.
             The planner and doer may also update the run plan at the path below.
             Do not modify .assembly-lines/ or the run settings.
             Seed: {seed}
             Plan: {plan}
             Do not stage or commit: the factory handles Git.
+            """;
+        var prompt = $"""
+            {context}
             {instructions}
+            {line.Machines[role].Instructions}
             Return boolean result fields: {string.Join(", ", fields)}.
+            {(role == "validator" || line.Machines[role].Role == "validator" ? "Include a findings array in the same JSON object: [] on success, or strings describing problems on failure. Use JSON booleans, not quoted strings." : "")}
             Finish with a single line of JSON. Do not wrap it in Markdown.
             """;
         (int Code, string Out, string Error) response;
-        try { response = await Run(executable, target, "--print", "--no-session", prompt); }
+        var input = prompt;
+        try
+        {
+            var arguments = new List<string> { "--print", "--no-session" };
+            if (line.Machines[role].Provider is { } provider) arguments.AddRange(["--provider", provider]);
+            if (line.Machines[role].Model is { } model) arguments.AddRange(["--model", model]);
+            arguments.Add(input);
+            response = await RunProcess(executable, target, null, cancellation, role, arguments.ToArray());
+        }
         catch (System.ComponentModel.Win32Exception error)
         {
             throw new Exception($"Could not run the {role}: " + error.Message);
@@ -83,45 +95,51 @@ try
         }
         if (result.ValueKind != JsonValueKind.Object)
             throw new Exception($"Could not read the {role}'s result.");
+        if ((role == "validator" || line.Machines[role].Role == "validator") &&
+            (!result.TryGetProperty("findings", out var reported) || reported.ValueKind != JsonValueKind.Array))
+            throw new Exception($"Could not read the {role}'s result.");
         return result;
     }
+
+    var findings = "[]";
+    async Task<string> Instructions(string machine, bool committed = false) => machine switch
+    {
+        "planner" => $"""
+            Read the seed and maintain the plan. If it is missing, create tasks from the seed only.
+            {(committed ? "The current task's validated work has been committed. Mark that task and its resolved subtasks done." : "Inspect the plan without marking unfinished tasks done. Do not perform product work.")}
+            Return "complete": true only when no tasks remain.
+            """,
+        "doer" => $"""
+            Read the seed and the plan. Implement only the first unfinished task.
+            Do not mark the task done; the planner does that after the work is committed.
+            Validator findings: {findings}
+            Record each finding as a subtask of the current task, not as a new top-level task,
+            and fix it before asking for validation again.
+            Return a JSON result describing the work performed.
+            """,
+        _ when machine == "validator" || line.Machines[machine].Role == "validator" => $"""
+            Check only the current task's work below using this lens: {line.Machines[machine].Lens}.
+            Report findings only. Change neither the plan nor the product files.
+            Return an array "findings" explaining any problems, alongside the routing fields.
+            Current task's work (Git diff against HEAD):
+            {await WorkDiff(target)}
+            """,
+        _ => "Read the seed and plan and perform your machine's work."
+    };
 
     var current = line.Next("start", default);
     var attempts = 0;
     var pendingWork = false;
-    var findings = "[]";
+    string? branchReports = null;
     while (current != "finish")
     {
+        var isValidator = current == "validator" || line.Machines[current].Role == "validator";
         var committed = current == "planner" && pendingWork;
         if (committed) await Commit(target, "Factory work");
         if (current == "doer" && ++attempts > maxAttempts)
             throw new Exception($"The task hit its limit of {maxAttempts} attempts.");
-        var instructions = current switch
-        {
-            "planner" => $"""
-                Read the seed and maintain the plan. If it is missing, create tasks from the seed only.
-                {(committed ? "The current task's validated work has been committed. Mark that task and its resolved subtasks done." : "Inspect the plan without marking unfinished tasks done. Do not perform product work.")}
-                Return "complete": true only when no tasks remain.
-                """,
-            "doer" => $"""
-                Read the seed and the plan. Implement only the first unfinished task.
-                Do not mark the task done; the planner does that after the work is committed.
-                Validator findings: {findings}
-                Record each finding as a subtask of the current task, not as a new top-level task,
-                and fix it before asking for validation again.
-                Return a JSON result describing the work performed.
-                """,
-            "validator" => $"""
-                Check only the current task's work below using this lens: {line.Machines[current].Lens}.
-                Report findings only. Change neither the plan nor the product files.
-                Return an array "findings" explaining any problems, alongside the routing fields.
-                Current task's work (Git diff against HEAD):
-                {await WorkDiff(target)}
-                """,
-            _ => "Read the seed and plan and perform your machine's work."
-        };
-        var result = await Machine(current, instructions);
-        var next = line.Next(current, result);
+        var result = await Machine(current, branchReports ?? await Instructions(current, committed), branchReports != null);
+        branchReports = null;
         if (current == "planner")
         {
             pendingWork = false;
@@ -129,13 +147,32 @@ try
             findings = "[]";
         }
         if (current == "doer") pendingWork = true;
-        if (current == "validator")
+        if (isValidator)
         {
-            if (!result.TryGetProperty("findings", out var reported) || reported.ValueKind != JsonValueKind.Array)
-                throw new Exception("Could not read the validator's result.");
-            findings = reported.GetRawText();
+            findings = result.GetProperty("findings").GetRawText();
         }
-        current = next;
+        if (line.FanOuts.TryGetValue(current, out var fanOut))
+        {
+            using var cancellation = new CancellationTokenSource();
+            async Task<(string Name, JsonElement Result)> Branch(string name)
+            {
+                try { return (name, await Machine(name, await Instructions(name), cancellation: cancellation.Token)); }
+                catch { cancellation.Cancel(); throw; }
+            }
+            var branches = fanOut.Branches.Select(Branch).ToArray();
+            try { await Task.WhenAll(branches); }
+            catch
+            {
+                // Await all exits after cancellation, then preserve the branch's original failure.
+                var failure = branches.FirstOrDefault(t => t.IsFaulted);
+                if (failure != null) throw failure.Exception!.InnerException!;
+                throw;
+            }
+            branchReports = "Branch results:\n" + JsonSerializer.Serialize(
+                branches.Select(t => t.Result).ToDictionary(r => r.Name, r => r.Result));
+            current = fanOut.Join;
+        }
+        else current = line.Next(current, result);
     }
     Console.WriteLine("factory stopped");
     return 0;
@@ -185,18 +222,31 @@ static async Task Git(string cwd, params string[] arguments)
 static Task<(int Code, string Out, string Error)> Run(string command, string cwd, params string[] arguments)
     => RunWithIndex(command, cwd, null, arguments);
 
-static async Task<(int Code, string Out, string Error)> RunWithIndex(string command, string cwd, string? index, params string[] arguments)
+static Task<(int Code, string Out, string Error)> RunWithIndex(string command, string cwd, string? index, params string[] arguments)
+    => RunProcess(command, cwd, index, default, null, arguments);
+
+static async Task<(int Code, string Out, string Error)> RunProcess(string command, string cwd, string? index,
+    CancellationToken cancellation, string? machine, params string[] arguments)
 {
     var info = new ProcessStartInfo(command)
     {
         WorkingDirectory = cwd, UseShellExecute = false,
         RedirectStandardOutput = true, RedirectStandardError = true
     };
+    cancellation.ThrowIfCancellationRequested();
+    if (machine != null) info.Environment["FACTORY_MACHINE"] = machine;
     if (index != null) info.Environment["GIT_INDEX_FILE"] = index;
     foreach (var argument in arguments) info.ArgumentList.Add(argument);
     using var process = Process.Start(info) ?? throw new Exception($"Could not start {command}.");
     var output = process.StandardOutput.ReadToEndAsync();
     var error = process.StandardError.ReadToEndAsync();
-    await process.WaitForExitAsync();
+    try { await process.WaitForExitAsync(cancellation); }
+    catch (OperationCanceledException)
+    {
+        if (!process.HasExited) process.Kill(entireProcessTree: true);
+        await process.WaitForExitAsync();
+        await Task.WhenAll(output, error);
+        throw;
+    }
     return (process.ExitCode, await output, await error);
 }
