@@ -2,5 +2,4 @@ factory/**/bin/
 factory/**/obj/
 factory/**/TestResults/
 factory/**/*.feature.cs
-/factory/runs/
 /atft/.assembly-lines/openrouter.local.json
