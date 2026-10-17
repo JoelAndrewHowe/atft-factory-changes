@@ -3,7 +3,7 @@ using System.Text.RegularExpressions;
 
 namespace Factory;
 
-public record MachineConfig(string? Harness = null, string Lens = "testability", string? Instructions = null, string? Role = null, string? Provider = null, string? Model = null);
+public record MachineConfig(string? Harness = null, string Lens = "testability", string? Instructions = null, string? Role = null, string? Provider = null, string? Model = null, string? Setting = null, string? Field = null);
 public record Edge(string From, string To, string? Label)
 {
     public string? Field => Label?.StartsWith("not ") == true ? Label[4..] : Label;
@@ -37,6 +37,9 @@ public sealed class AssemblyLine
             Machines[node] = JsonSerializer.Deserialize<MachineConfig>(File.ReadAllText(path),
                 new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
         }
+        foreach (var (switchName, machine) in Machines.Where(m => m.Value.Setting != null))
+            if (string.IsNullOrWhiteSpace(machine.Field) || Edges.Any(e => e.From == switchName && e.Field != machine.Field))
+                throw new Exception($"The setting switch \"{switchName}\" must name a field, and route only on it.");
         if (Edges.Count(e => e.From == "start") != 1 || Edges.Any(e => e.To == "start" || e.From == "finish")
             || Edges.Any(e => e.To == "finish" && e.From != "planner"))
             throw new Exception("The line must start at start and finish through the planner.");

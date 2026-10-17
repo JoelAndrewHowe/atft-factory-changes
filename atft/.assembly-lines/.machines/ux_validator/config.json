@@ -1,7 +1,7 @@
 {
   "role": "validator",
-  "lens": "UX design: clear controls, readable terminal layout, timely feedback, accessibility, and coherent game-over and error states",
-  "instructions": "Review only the current task's changes against the seed and UX.md if present. Check the 24-row display limit where relevant. Report actionable UX problems within the task's scope. Do not redesign unrelated features or modify files. Return satisfied and findings, using an empty findings array when satisfied.",
+  "lens": "UX for a browser-based tutorial: clear lesson flow, readable layout, keyboard operability, accessible labels and focus, timely and specific feedback, clear error and empty states",
+  "instructions": "Review only the current task's changes against the seed and the iteration spec. Check what the learner sees and does: navigation, instructions, feedback messages, focus order, labels, contrast and desktop layout. Report actionable UX problems within the task's scope. Do not redesign unrelated features or modify files. Return satisfied and findings, using an empty findings array when satisfied.",
   "provider": "openai-codex",
   "model": "gpt-6-sol"
 }

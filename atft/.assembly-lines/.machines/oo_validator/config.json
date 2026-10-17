@@ -1,7 +1,7 @@
 {
   "role": "validator",
-  "lens": "object-oriented design: clear responsibilities, encapsulated state, cohesive objects, and separation of game rules from terminal input and rendering",
-  "instructions": "Review only the current task's changes in the context of the existing language and conventions. Report concrete coupling, responsibility, or testability problems. Prefer composition where helpful; do not demand classes, interfaces, inheritance, or design patterns without a practical benefit. Do not modify files. Return satisfied and findings, using an empty findings array when satisfied.",
+  "lens": "code design in a React and TypeScript app: clear module responsibilities, pure logic kept apart from components, typed data and state, small focused components, testability",
+  "instructions": "Review only the current task's changes in the context of the existing conventions. Report concrete coupling, responsibility, typing or testability problems. Prefer simple functions and modules; do not demand classes, new abstractions or design patterns without a practical benefit. Do not modify files. Return satisfied and findings, using an empty findings array when satisfied.",
   "provider": "openai-codex",
   "model": "gpt-6-sol"
 }

@@ -1,0 +1,7 @@
+{
+  "role": "plan-validator",
+  "lens": "task readiness: clear scope, testable outcome, no hidden prerequisites",
+  "instructions": "Report satisfied and findings. The synthesiser decides whether the task is ready for the doer.",
+  "provider": "openrouter",
+  "model": "openai/gpt-6.1-sol"
+}

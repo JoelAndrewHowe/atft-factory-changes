@@ -15,6 +15,18 @@ File.WriteAllText(callPath + ".tmp",
 
 File.Move(callPath + ".tmp", callPath);
 
+if (role.StartsWith("plan_review_"))
+{
+    Console.WriteLine(JsonSerializer.Serialize(new { satisfied = true, findings = Array.Empty<string>() }));
+    return;
+}
+if (role == "plan_synthesiser")
+{
+    var mode = Environment.GetEnvironmentVariable("DOUBLE_PLAN_SYNTHESIS");
+    var satisfied = mode != "never" && (mode != "retry" || priorCalls.Any(c => c.GetProperty("role").GetString() == role));
+    Console.WriteLine(JsonSerializer.Serialize(new { satisfied, findings = satisfied ? Array.Empty<string>() : new[] { "Resolve the plan finding." } }));
+    return;
+}
 if (role.StartsWith("reviewer_"))
 {
     File.WriteAllText(Path.Combine(workspace, role + ".pid"), Environment.ProcessId.ToString());
@@ -108,6 +120,11 @@ var tasks = prose
     ? File.ReadAllLines(plan).Select(line => line.Split(' ')).ToDictionary(words => words[1], words => words[3] == "finished.")
     : JsonSerializer.Deserialize<Dictionary<string, bool>>(File.ReadAllText(plan))!;
 var task = tasks.FirstOrDefault(t => !t.Value).Key;
+if (role == "task_extractor")
+{
+    Console.WriteLine(JsonSerializer.Serialize(new { task = $"Extracted task: {task}" }));
+    return;
+}
 if (role == "planner")
 {
     if (prompt.Contains("The current task's validated work has been committed.") && task != null)

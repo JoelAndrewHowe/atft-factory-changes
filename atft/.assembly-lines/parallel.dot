@@ -1,0 +1,21 @@
+digraph assembly_line {
+  start -> planner
+  planner -> plan_gate           [label="not complete"]
+  planner -> finish              [label="complete"]
+  plan_gate -> task_extractor    [label="plan_check"]
+  plan_gate -> doer              [label="not plan_check"]
+  task_extractor -> plan_review_gpt
+  task_extractor -> plan_review_opus
+  plan_review_gpt -> plan_synthesiser
+  plan_review_opus -> plan_synthesiser
+  plan_synthesiser -> planner    [label="not satisfied"]
+  plan_synthesiser -> doer       [label="satisfied"]
+  doer -> validator
+  doer -> ux_validator
+  doer -> oo_validator
+  validator -> review_synthesiser
+  ux_validator -> review_synthesiser
+  oo_validator -> review_synthesiser
+  review_synthesiser -> doer     [label="not satisfied"]
+  review_synthesiser -> planner  [label="satisfied"]
+}

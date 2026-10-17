@@ -118,3 +118,54 @@ Execution and commits are in `src/Program.cs`, graph routing in
 `src/AssemblyLine.cs`, and saved run settings in `src/FactoryRun.cs`.
 
 For concurrent review branches and results-only synthesis, see [Iteration 5: fan out](FAN-OUT.md).
+
+## Plan check
+
+`atft/.assembly-lines/careful-plan-check.dot` adds an optional review of the next
+task before the doer starts. After the planner picks a task, a `task_extractor`
+machine (role `extractor`) copies out only that task. Two `plan-validator`
+machines review just that text, in parallel, and a synthesiser decides. A
+rejected task goes back to the planner with the findings, up to `--max-attempts`
+times. An accepted task goes to the doer, which is given the task text instead
+of being told to read the whole plan.
+
+`factory/appsettings.json` switches it on and off:
+
+```json
+{ "PlanCheck": { "Enabled": true } }
+```
+
+The `plan_gate` machine reads this setting and runs no agent. When the setting is
+false, missing, or the file is absent, the line goes straight from the planner to
+the doer and no extractor, reviewer or synthesiser is called. The setting is read
+at the start of each run. The reviewers' `provider` and `model` live in their
+`config.json` files; OpenRouter needs `OPENROUTER_API_KEY` available to Pi.
+
+## Guard rails
+
+`factory/appsettings.json` can stop a run that is going nowhere. All guards are off
+when their setting is missing or 0.
+
+```json
+"Guards": {
+  "MaxTasks": 40,
+  "FreezeTaskList": true,
+  "StopAfterNoChangeTasks": 3,
+  "MachineTimeoutMinutes": 30
+}
+```
+
+- `MaxTasks`: the planner is told to create at most this many top-level tasks, and the
+  run stops if the plan ever has more.
+- `FreezeTaskList`: after the plan exists, the planner is told not to add, remove or
+  reorder top-level tasks, and the run stops if the count rises above the first count
+  it saw in this run. New work goes in as subtasks.
+- `StopAfterNoChangeTasks`: stops after this many tasks in a row are accepted with no
+  file changes in the target.
+- `MachineTimeoutMinutes`: stops a machine that has not finished in this time.
+
+Task counting reads the plan for unindented `- [ ]` / `- [x]` lines, so it only works
+with that plan format. The first count in each factory process is the baseline, so a
+resumed run treats its current plan as the starting size. The factory writes
+`factory/runs/<run>/factory.log` and every machine response to `history/`; set
+`"Logging": { "Console": true }` to echo the log to the terminal.

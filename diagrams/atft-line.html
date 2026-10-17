@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>The ATFT Assembly Line</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:   #f5f5f5;
+      --color-ink:     #2d3142;
+      --color-muted:   #4f5d75;
+      --color-accent:  #eb6c36;
+      --font-sans:     'Geist', system-ui, sans-serif;
+      --font-serif:    'Instrument Serif', serif;
+      --font-mono:     'Geist Mono', ui-monospace, monospace;
+    }
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+    .frame { max-width: 1240px; width: 100%; }
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      color: var(--color-ink);
+      margin-bottom: 0.5rem;
+    }
+    .sub { color: var(--color-muted); font-size: 0.9rem; margin-bottom: 1.5rem; }
+    svg { width: 100%; min-width: 900px; display: block; }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Flowchart · Diagram Design</p>
+    <h1>The ATFT assembly line</h1>
+    <p class="sub">atft/.assembly-lines/careful.dot — the doer's work passes three validators in turn, and any rejection sends it back to the doer. Every machine runs openai-codex / gpt-6-sol.</p>
+
+    <svg viewBox="0 0 1112 440" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="atft-line-title atft-line-desc">
+      <title id="atft-line-title">The ATFT assembly line</title>
+      <desc id="atft-line-desc">Flowchart of the ATFT careful line: a planner hands tasks to a doer, whose work must pass a testability validator, a UX validator and an object-oriented design validator in turn, with any rejection returning to the doer and final approval returning to the planner, which finishes the run when the plan is complete.</desc>
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+        <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#eb6c36"/></marker>
+      </defs>
+
+      <rect width="100%" height="100%" fill="#f5f5f5"/>
+
+      <line x1="112" y1="160" x2="152" y2="160" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <line x1="272" y1="160" x2="376" y2="160" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <line x1="496" y1="160" x2="544" y2="160" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <line x1="664" y1="160" x2="752" y2="160" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <line x1="872" y1="160" x2="960" y2="160" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <line x1="212" y1="192" x2="212" y2="300" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <path d="M1020,128 V88 Q1020,80 1012,80 H220 Q212,80 212,88 V128" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <path d="M604,192 V224 Q604,232 596,232 H480 Q472,232 472,224 V192" fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+      <path d="M812,192 V252 Q812,260 804,260 H444 Q436,260 436,252 V192" fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+      <path d="M1020,192 V280 Q1020,288 1012,288 H408 Q400,288 400,280 V192" fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+
+      <rect x="284" y="140" width="80" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="324" y="149" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">NOT COMPLETE</text>
+      <rect x="224" y="236" width="64" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="256" y="245" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">COMPLETE</text>
+      <rect x="676" y="140" width="64" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="708" y="149" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">SATISFIED</text>
+      <rect x="884" y="140" width="64" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="916" y="149" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">SATISFIED</text>
+      <rect x="584" y="60" width="64" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="616" y="69" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">SATISFIED</text>
+      <rect x="494" y="212" width="88" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="538" y="221" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">NOT SATISFIED</text>
+      <rect x="580" y="240" width="88" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="624" y="249" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">NOT SATISFIED</text>
+      <rect x="666" y="268" width="88" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="710" y="277" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">NOT SATISFIED</text>
+
+      <rect x="32" y="140" width="80" height="40" rx="20" fill="#f5f5f5"/>
+      <rect x="32" y="140" width="80" height="40" rx="20" fill="#2d3142" fill-opacity="0.05" stroke="#4f5d75" stroke-width="1"/>
+      <text x="72" y="164" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">start</text>
+
+      <rect x="152" y="128" width="120" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="152" y="128" width="120" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="212" y="156" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">planner</text>
+      <text x="212" y="172" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">picks next task</text>
+
+      <rect x="376" y="128" width="120" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="376" y="128" width="120" height="64" rx="6" fill="#eb6c36" fill-opacity="0.12" stroke="#eb6c36" stroke-width="1"/>
+      <text x="436" y="156" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">doer</text>
+      <text x="436" y="172" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">builds the task</text>
+
+      <rect x="544" y="128" width="120" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="544" y="128" width="120" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="604" y="156" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">validator</text>
+      <text x="604" y="172" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">lens: testability</text>
+
+      <rect x="752" y="128" width="120" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="752" y="128" width="120" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="812" y="156" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">ux_validator</text>
+      <text x="812" y="172" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">lens: UX design</text>
+
+      <rect x="960" y="128" width="120" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="960" y="128" width="120" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="1020" y="156" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">oo_validator</text>
+      <text x="1020" y="172" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">lens: OO design</text>
+
+      <rect x="172" y="300" width="80" height="40" rx="20" fill="#f5f5f5"/>
+      <rect x="172" y="300" width="80" height="40" rx="20" fill="#2d3142" fill-opacity="0.05" stroke="#4f5d75" stroke-width="1"/>
+      <text x="212" y="324" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">finish</text>
+
+      <line x1="32" y1="384" x2="1080" y2="384" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <text x="32" y="408" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+      <rect x="120" y="396" width="24" height="16" rx="8" fill="#2d3142" fill-opacity="0.05" stroke="#4f5d75" stroke-width="1"/>
+      <text x="152" y="408" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">START / FINISH</text>
+      <rect x="280" y="396" width="24" height="16" rx="4" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="312" y="408" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">REVIEW MACHINE</text>
+      <rect x="448" y="396" width="24" height="16" rx="4" fill="#eb6c36" fill-opacity="0.12" stroke="#eb6c36" stroke-width="1"/>
+      <text x="480" y="408" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">WORKER MACHINE</text>
+      <line x1="620" y1="404" x2="648" y2="404" stroke="#4f5d75" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+      <text x="656" y="408" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">REJECTED, RETRY</text>
+      <line x1="800" y1="404" x2="828" y2="404" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <text x="836" y="408" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">FORWARD</text>
+    </svg>
+  </div>
+</body>
+</html>
