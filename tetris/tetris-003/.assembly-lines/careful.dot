@@ -4,5 +4,9 @@ digraph assembly_line {
   planner -> finish      [label="complete"]
   doer -> validator
   validator -> doer      [label="not satisfied"]
-  validator -> planner   [label="satisfied"]
+  validator -> ux_validator [label="satisfied"]
+  ux_validator -> doer      [label="not satisfied"]
+  ux_validator -> oo_validator [label="satisfied"]
+  oo_validator -> doer      [label="not satisfied"]
+  oo_validator -> planner   [label="satisfied"]
 }

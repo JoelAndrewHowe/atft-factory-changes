@@ -5,6 +5,7 @@ import {
   canonicalAnswers,
   gapDefinitions,
   getCanonicalCode,
+  stripRegionMarkers,
   getLessonById,
   getLessonByNumber,
   learnerFeatureFile,
@@ -166,9 +167,25 @@ describe('lessons', () => {
     );
   });
 
+  it('rendered text segments preserve code formatting without internal markers for blank and filled gaps', () => {
+    for (const file of [learnerImmunizationFile, learnerStepsFile]) {
+      const answerSets: Record<string, string>[] = [{}, canonicalAnswers];
+      for (const values of answerSets) {
+        const rendered = file.segments.map((segment) => segment.type === 'text'
+          ? stripRegionMarkers(segment.content)
+          : values[segment.gapId] ?? '').join('');
+        expect(rendered).toBe(stripRegionMarkers(assembleCode(file.segments, values)));
+        expect(rendered).not.toMatch(/\/\/ (?:end)?region:/);
+      }
+    }
+    expect(getCanonicalCode(learnerImmunizationFile.segments)).toContain(
+      'public sealed class PatientReference\n{\n    [JsonPropertyName("reference")]\n    public string Reference { get; set; } = "";\n}',
+    );
+  });
+
   it('canonical learner steps file matches spec', () => {
     const code = getCanonicalCode(learnerStepsFile.segments);
-    expect(code).toBe(
+    expect(code).toBe(stripRegionMarkers(
       'using System;\n' +
         'using System.Net.Http;\n' +
         'using System.Net.Http.Headers;\n' +
@@ -188,8 +205,11 @@ describe('lessons', () => {
         '    private Immunization _request = null!;\n' +
         '    private HttpResponseMessage _response = null!;\n' +
         '\n' +
+        '    // region:given-body\n' +
+        '    // region:given-binding\n' +
         '    [Given("a vaccination for patient {string}")]\n' +
         '    public void GivenAVaccination(string patientReference)\n' +
+        '    // endregion:given-binding\n' +
         '    {\n' +
         '        _request = new Immunization\n' +
         '        {\n' +
@@ -200,43 +220,64 @@ describe('lessons', () => {
         '            LotNumber = "TRAINING-FLU-001"\n' +
         '        };\n' +
         '    }\n' +
+        '    // endregion:given-body\n' +
         '\n' +
+        '    // region:when-binding\n' +
         '    [When("I submit the vaccination")]\n' +
         '    public async Task WhenISubmitTheVaccination()\n' +
+        '    // endregion:when-binding\n' +
         '    {\n' +
+        '        // region:request-message\n' +
         '        using var message = new HttpRequestMessage(HttpMethod.Post, "Immunization");\n' +
+        '        // endregion:request-message\n' +
         '        message.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/fhir+json"));\n' +
         '        message.Headers.Add("Prefer", "return=representation");\n' +
+        '        // region:serialize\n' +
         '        message.Content = new StringContent(\n' +
         '            JsonSerializer.Serialize(_request), Encoding.UTF8, "application/fhir+json");\n' +
+        '        // endregion:serialize\n' +
+        '        // region:sendasync\n' +
         '        _response = await Client.SendAsync(message);\n' +
+        '        // endregion:sendasync\n' +
         '    }\n' +
         '\n' +
+        '    // region:then-status-binding\n' +
         '    [Then("the response status is {int}")]\n' +
         '    public void ThenTheResponseStatusIs(int expectedStatus)\n' +
+        '    // endregion:then-status-binding\n' +
         '    {\n' +
+        '        // region:then-status-body\n' +
         '        Assert.That((int)_response.StatusCode, Is.EqualTo(expectedStatus));\n' +
+        '        // endregion:then-status-body\n' +
         '    }\n' +
         '\n' +
+        '    // region:then-data-binding\n' +
         '    [Then("the recorded vaccination matches the request")]\n' +
         '    public async Task ThenTheRecordedVaccinationMatches()\n' +
+        '    // endregion:then-data-binding\n' +
         '    {\n' +
         '        var json = await _response.Content.ReadAsStringAsync();\n' +
+        '        // region:deserialize\n' +
         '        var actual = JsonSerializer.Deserialize<Immunization>(json)\n' +
         '            ?? throw new InvalidOperationException("Expected an Immunization response.");\n' +
+        '        // endregion:deserialize\n' +
         '        Assert.That(actual.Id, Is.Not.Null.And.Not.Empty);\n' +
         '        Assert.That(actual.ResourceType, Is.EqualTo("Immunization"));\n' +
         '        Assert.That(actual.Status, Is.EqualTo(_request.Status));\n' +
+        '        // region:patient-assertion\n' +
         '        Assert.That(actual.Patient.Reference, Is.EqualTo(_request.Patient.Reference));\n' +
+        '        // endregion:patient-assertion\n' +
         '        Assert.That(actual.VaccineCode.Text, Is.EqualTo(_request.VaccineCode.Text));\n' +
         '        Assert.That(actual.OccurrenceDateTime, Is.EqualTo(_request.OccurrenceDateTime));\n' +
+        '        // region:lot-assertion\n' +
         '        Assert.That(actual.LotNumber, Is.EqualTo(_request.LotNumber));\n' +
+        '        // endregion:lot-assertion\n' +
         '    }\n' +
         '\n' +
         '    [AfterScenario]\n' +
         '    public void Cleanup() => _response?.Dispose();\n' +
         '}',
-    );
+    ));
   });
 
   it('worked feature file uses patient-002', () => {
@@ -336,7 +377,7 @@ describe('lessons', () => {
       'feature.then': 'Then',
       'feature.status': '201',
     });
-    expect(code).toBe(getCanonicalCode(learnerFeatureFile.segments));
+    expect(stripRegionMarkers(code)).toBe(getCanonicalCode(learnerFeatureFile.segments));
   });
 
   it('assembleCode leaves missing gaps empty', () => {

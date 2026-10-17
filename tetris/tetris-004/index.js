@@ -1,7 +1,7 @@
 const { BOARD_WIDTH, BOARD_HEIGHT } = require("./src/constants");
 const { createBoard } = require("./src/board");
 const { getWelcomeMessage } = require("./src/welcome");
-const { main } = require("./src/game");
+const { main, createGame } = require("./src/game");
 const {
   getPieceShape,
   rotateShape,
@@ -19,6 +19,7 @@ module.exports = {
   rotateShape,
   getPieceTypes,
   createPiece,
+  createGame,
 };
 
 if (require.main === module) {

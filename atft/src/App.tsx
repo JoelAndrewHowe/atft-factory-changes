@@ -10,6 +10,7 @@ import {
   learnerImmunizationFile,
   learnerStepsFile,
   lessons,
+  stripRegionMarkers,
   type CodeFile,
   type LessonData,
   type Segment,
@@ -26,7 +27,9 @@ import {
   DEFAULT_SCHEMA_VERSION,
   DEFAULT_STORAGE_KEY,
   deriveProgressState,
+  invalidateCodeCheck,
   loadState,
+  makeFreshPersistedState,
   saveState,
   type PersistedTutorialState,
   type PersistenceConfig,
@@ -39,10 +42,29 @@ import {
   requestLines,
   statusCreated,
 } from './fixtures'
+import { traces } from './traces'
+import { TracePanel } from './TracePanel'
+import { buildWalkthroughStages } from './walkthrough'
+import { WalkthroughPanel } from './WalkthroughPanel'
+import {
+  getQuestionsForLesson,
+  questions,
+  type QuestionId,
+} from './questions'
+import { evaluateLessonGate, evaluateTutorialGates } from './lessonGates'
 import './App.css'
 
+const unavailableStorage: Storage = {
+  length: 0,
+  clear(): void { throw new Error('Storage unavailable') },
+  key(): null { throw new Error('Storage unavailable') },
+  getItem(): null { throw new Error('Storage unavailable') },
+  setItem(): void { throw new Error('Storage unavailable') },
+  removeItem(): void { throw new Error('Storage unavailable') },
+}
+
 const config: PersistenceConfig = {
-  storage: localStorage,
+  storage: (() => { try { return window.localStorage } catch { return unavailableStorage } })(),
   lessons,
   allGapIds: ALL_GAP_IDS as readonly string[],
   schemaVersion: DEFAULT_SCHEMA_VERSION,
@@ -50,28 +72,24 @@ const config: PersistenceConfig = {
   storageKey: DEFAULT_STORAGE_KEY,
 }
 
-function makeFreshPersistedState(): PersistedTutorialState {
-  return {
-    schemaVersion: config.schemaVersion,
-    contentVersion: config.contentVersion,
-    currentLessonId: config.lessons[0].id,
-    highestUnlockedLesson: 1,
-    readingComplete: false,
-    gapValues: {},
-    lastCheckedValues: {},
-    simulationComplete: false,
-  }
-}
-
-function getInitialPersisted(): {
+function getInitialState(): {
   persisted: PersistedTutorialState
   error: string | null
+  migrationNotice: string | null
 } {
   const loaded = loadState(config)
   if (loaded && !loaded.corrupted) {
-    return { persisted: loaded.persisted, error: null }
+    return {
+      persisted: loaded.persisted,
+      error: loaded.error,
+      migrationNotice: loaded.migrationNotice,
+    }
   }
-  return { persisted: makeFreshPersistedState(), error: loaded?.error ?? null }
+  return {
+    persisted: makeFreshPersistedState(config),
+    error: loaded?.error ?? null,
+    migrationNotice: null,
+  }
 }
 
 function statusLabel(status: string): string {
@@ -81,7 +99,9 @@ function statusLabel(status: string): string {
     case 'available':
       return 'Available'
     case 'needs-check':
-      return 'Needs check'
+      return 'Needs check — code check needed'
+    case 'needs-understanding':
+      return 'Needs check — understanding pending'
     case 'complete':
       return 'Complete'
     default:
@@ -153,7 +173,7 @@ function SegmentRenderer({
   inputRefs: React.MutableRefObject<Map<string, HTMLInputElement>>
 }) {
   if (segment.type === 'text') {
-    return <span>{segment.content}</span>
+    return <span>{stripRegionMarkers(segment.content)}</span>
   }
 
   const gapId = segment.gapId
@@ -238,9 +258,9 @@ function SimulationView({ gapValues }: { gapValues: Record<string, Record<string
 
   const assembledFiles: Record<string, string> = useMemo(
     () => ({
-      feature: assembleCode(learnerFeatureFile.segments, allGapValues),
-      model: assembleCode(learnerImmunizationFile.segments, allGapValues),
-      steps: assembleCode(learnerStepsFile.segments, allGapValues),
+      feature: stripRegionMarkers(assembleCode(learnerFeatureFile.segments, allGapValues)),
+      model: stripRegionMarkers(assembleCode(learnerImmunizationFile.segments, allGapValues)),
+      steps: stripRegionMarkers(assembleCode(learnerStepsFile.segments, allGapValues)),
       request: `${requestLines.join('\n')}\n\n${JSON.stringify(learnerRequestBody, null, 2)}`,
       response: `201 Created\nContent-Type: ${headers.accept}\nLocation: ${learnerLocation}\n\n${JSON.stringify(learnerResponseBody, null, 2)}`,
     }),
@@ -313,7 +333,7 @@ function SimulationView({ gapValues }: { gapValues: Record<string, Record<string
 }
 
 export default function App() {
-  const initial = useMemo(() => getInitialPersisted(), [])
+  const initial = useMemo(() => getInitialState(), [])
   const [persisted, setPersisted] = useState<PersistedTutorialState>(initial.persisted)
   const [loadError, setLoadError] = useState<string | null>(initial.error)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -322,15 +342,21 @@ export default function App() {
   const [checkResults, setCheckResults] = useState<Record<string, ValidationResult>>({})
   const [resetDialogOpen, setResetDialogOpen] = useState(false)
   const [liveMessage, setLiveMessage] = useState('')
+  const [openTraceId, setOpenTraceId] = useState<string | null>(null)
+  const [showWalkthrough, setShowWalkthrough] = useState(false)
+  const [migrationNotice, setMigrationNotice] = useState<string | null>(initial.migrationNotice)
+  const [questionErrors, setQuestionErrors] = useState<Record<string, string>>({})
   const prevLessonIdRef = useRef<string>(persisted.currentLessonId)
   const inputRefs = useRef(new Map<string, HTMLInputElement>())
+  const traceTriggerRefs = useRef(new Map<string, HTMLButtonElement>())
+  const walkthroughTriggerRef = useRef<HTMLButtonElement>(null)
   const mainRef = useRef<HTMLDivElement>(null)
   const resetButtonRef = useRef<HTMLButtonElement>(null)
   const resetDialogRef = useRef<HTMLDivElement>(null)
   const dialogHeadingRef = useRef<HTMLHeadingElement>(null)
   const prevDialogOpen = useRef(false)
 
-  // Reconstruct checkResults for completed lessons on mount / navigation
+  // Reconstruct checkResults for current lesson on mount / navigation
   useEffect(() => {
     const lesson = getLessonById(persisted.currentLessonId)
     if (!lesson || lesson.type !== 'coding') return
@@ -380,16 +406,25 @@ export default function App() {
     [persisted.currentLessonId],
   )
 
-  const currentStatus = progress.lessonStatuses[currentLesson.id] ?? 'locked'
+  const gates = useMemo(
+    () => evaluateTutorialGates(progress, persisted.readingComplete, persisted.checkedQuestionSelections, persisted.questionSelections),
+    [progress, persisted.readingComplete, persisted.checkedQuestionSelections, persisted.questionSelections],
+  )
+  const currentGate = gates.lessons[currentLesson.id]
+  const effectiveCurrentStatus = currentGate.status
+  const understandingSummary = { passed: currentGate.understandingPassed, total: currentGate.understandingTotal }
 
-  const canRunSimulation = useMemo(() => {
-    return (
-      persisted.readingComplete &&
-      lessons
-        .filter((l) => l.type === 'coding')
-        .every((l) => progress.lessonStatuses[l.id] === 'complete')
-    )
-  }, [persisted.readingComplete, progress.lessonStatuses])
+  const lessonTraces = useMemo(
+    () => traces.filter((t) => t.lessonId === currentLesson.id),
+    [currentLesson.id],
+  )
+
+  const openTrace = useMemo(
+    () => lessonTraces.find((t) => t.id === openTraceId) ?? null,
+    [lessonTraces, openTraceId],
+  )
+
+  const canRunSimulation = gates.canRunSimulation
 
   // Persist on every change
   useEffect(() => {
@@ -425,9 +460,18 @@ export default function App() {
       setPersisted((p) => ({ ...p, currentLessonId: lessonId }))
       setShowSolution(false)
       setCheckResults({})
+      setQuestionErrors({})
+      setOpenTraceId(null)
+      setShowWalkthrough(false)
       setLiveMessage('')
+      // The lesson-id effect focuses the heading when the destination changes.
+      // Navigating to the current lesson also closes the walkthrough, and must
+      // not leave focus inside the panel that is about to unmount.
+      if (lessonId === persisted.currentLessonId) {
+        requestAnimationFrame(() => mainRef.current?.querySelector('h2')?.focus())
+      }
     },
-    [],
+    [persisted.currentLessonId],
   )
 
   const navigateTo = useCallback(
@@ -443,7 +487,7 @@ export default function App() {
   const handleGapChange = useCallback(
     (gapId: string, value: string) => {
       const lessonId = currentLesson.id
-      setPersisted((p) => ({
+      setPersisted((p) => invalidateCodeCheck({
         ...p,
         gapValues: {
           ...p.gapValues,
@@ -452,14 +496,26 @@ export default function App() {
             [gapId]: value,
           },
         },
-        simulationComplete: false,
-      }))
+      }, lessonId))
       setShowSimulation(false)
+      setShowWalkthrough(false)
       setCheckResults({})
       setLiveMessage('')
     },
     [currentLesson.id],
   )
+
+  const allGapValues = useMemo(() => {
+    const result: Record<string, string> = {}
+    for (const [, gaps] of Object.entries(persisted.gapValues)) {
+      for (const [gapId, value] of Object.entries(gaps)) {
+        result[gapId] = value
+      }
+    }
+    return result
+  }, [persisted.gapValues])
+
+  const walkthroughStages = useMemo(() => buildWalkthroughStages(allGapValues), [allGapValues])
 
   const handleContinue = useCallback(() => {
     const next = lessons.find((l) => l.number === currentLesson.number + 1)
@@ -472,15 +528,14 @@ export default function App() {
         highestUnlockedLesson: Math.max(p.highestUnlockedLesson, next.number),
       }))
       goToLesson(next.id)
-    } else if (currentStatus === 'complete') {
-      // Ensure next lesson is unlocked even if handleCheck missed it
+    } else if (effectiveCurrentStatus === 'complete') {
       setPersisted((p) => ({
         ...p,
         highestUnlockedLesson: Math.max(p.highestUnlockedLesson, next.number),
       }))
       goToLesson(next.id)
     }
-  }, [currentLesson, currentStatus, goToLesson])
+  }, [currentLesson, effectiveCurrentStatus, goToLesson])
 
   const handleCheck = useCallback(() => {
     if (currentLesson.type !== 'coding') return
@@ -496,19 +551,29 @@ export default function App() {
       .map(([id]) => id)
 
     if (allValid(results)) {
+      const allQuestionsComplete = evaluateLessonGate(
+        currentLesson.id, 'complete', persisted.checkedQuestionSelections, persisted.questionSelections,
+      ).complete
       setPersisted((p) => ({
         ...p,
         lastCheckedValues: {
           ...p.lastCheckedValues,
           [currentLesson.id]: { ...currentGaps },
         },
-        highestUnlockedLesson: Math.max(
-          p.highestUnlockedLesson,
-          currentLesson.number + 1,
-        ),
+        highestUnlockedLesson: allQuestionsComplete
+          ? Math.min(lessons.length, Math.max(p.highestUnlockedLesson, currentLesson.number + 1))
+          : p.highestUnlockedLesson,
       }))
       setShowSolution(false)
-      setLiveMessage('All gaps are correct. Lesson complete.')
+      if (allQuestionsComplete) {
+        setLiveMessage(currentLesson.number === 5
+          ? 'All gaps are correct. Lesson complete. Run simulated test is available.'
+          : 'All gaps are correct. Lesson complete. Continue is available.')
+      } else {
+        setLiveMessage(currentLesson.number === 5
+          ? 'All gaps are correct. Complete the understanding checks to run simulated test.'
+          : 'All gaps are correct. Complete the understanding checks to continue.')
+      }
     } else {
       const firstInvalid = firstInvalidGapId(currentLesson.editableGaps, results)
       if (firstInvalid) {
@@ -520,9 +585,74 @@ export default function App() {
         `${count} gap${count === 1 ? '' : 's'} need${count === 1 ? 's' : ''} correction.`,
       )
     }
-  }, [currentLesson, persisted.gapValues])
+  }, [currentLesson, persisted.gapValues, persisted.checkedQuestionSelections, persisted.questionSelections])
+
+  const handleQuestionSelection = useCallback(
+    (questionId: QuestionId, choiceId: 'A' | 'B' | 'C') => {
+      setPersisted((p) => ({
+        ...p,
+        questionSelections: { ...p.questionSelections, [questionId]: choiceId },
+        checkedQuestionSelections: { ...p.checkedQuestionSelections, [questionId]: undefined },
+        simulationComplete: false,
+      }))
+      setShowSimulation(false)
+      setShowWalkthrough(false)
+      setLiveMessage('')
+      setQuestionErrors((prev) => ({ ...prev, [questionId]: '' }))
+    },
+    [],
+  )
+
+  const handleQuestionCheck = useCallback(
+    (questionId: QuestionId) => {
+      const selected = persisted.questionSelections[questionId]
+      const question = questions.find((q) => q.id === questionId)
+      if (!question) return
+      if (!selected) {
+        const message = `${question.question} Choose an answer before checking.`
+        setLiveMessage((prev) => prev === message ? `${message}\u200B` : message)
+        setQuestionErrors((prev) => ({ ...prev, [questionId]: 'Choose an answer before checking.' }))
+        return
+      }
+
+      const correct = selected === question.correctChoiceId
+      const codeStatus = progress.lessonStatuses[currentLesson.id] ?? 'locked'
+      const updatedChecked = { ...persisted.checkedQuestionSelections, [questionId]: selected }
+      const lessonComplete = evaluateLessonGate(currentLesson.id, codeStatus, updatedChecked, persisted.questionSelections).complete
+      setPersisted((p) => {
+        const allQuestionsComplete = evaluateLessonGate(
+          currentLesson.id, codeStatus, { ...p.checkedQuestionSelections, [questionId]: selected }, p.questionSelections,
+        ).complete
+        return {
+        ...p,
+        checkedQuestionSelections: {
+          ...p.checkedQuestionSelections,
+          [questionId]: selected,
+        },
+        highestUnlockedLesson:
+          allQuestionsComplete
+            ? Math.min(lessons.length, Math.max(p.highestUnlockedLesson, currentLesson.number + 1))
+            : p.highestUnlockedLesson,
+        simulationComplete: allQuestionsComplete ? p.simulationComplete : false,
+      }})
+
+      // Ensure re-announcement by appending a zero-width space that changes each time
+      setLiveMessage((prev) => {
+        const msg = correct
+          ? `${lessonComplete ? (currentLesson.number === 5 ? 'Lesson complete. Run simulated test is available. ' : 'Lesson complete. Continue is available. ') : 'Correct. '}${question.feedback[selected]}`
+          : `Not yet — try again. ${question.feedback[selected]}`
+        return prev === msg ? msg + '\u200B' : msg
+      })
+      setQuestionErrors((prev) => ({ ...prev, [questionId]: '' }))
+    },
+    [persisted.questionSelections, persisted.checkedQuestionSelections, progress.lessonStatuses, currentLesson],
+  )
 
   const handleRunSimulation = useCallback(() => {
+    if (!canRunSimulation) {
+      setLiveMessage('Complete the code and understanding checks before running the simulation.')
+      return
+    }
     let allPass = true
     const newLastChecked = { ...persisted.lastCheckedValues }
 
@@ -553,17 +683,22 @@ export default function App() {
         lastCheckedValues: newLastChecked,
       }))
       setShowSimulation(false)
+      setShowWalkthrough(false)
       setLiveMessage('Some answers are incorrect. Please review and check each lesson.')
     }
-  }, [persisted.gapValues, persisted.lastCheckedValues])
+  }, [canRunSimulation, persisted.gapValues, persisted.lastCheckedValues])
 
   const handleResetConfirm = useCallback(() => {
     clearState(config)
-    const fresh = makeFreshPersistedState()
+    const fresh = makeFreshPersistedState(config)
     setPersisted(fresh)
     setShowSolution(false)
     setShowSimulation(false)
+    setShowWalkthrough(false)
     setCheckResults({})
+    setQuestionErrors({})
+    setOpenTraceId(null)
+    setMigrationNotice(null)
     setResetDialogOpen(false)
     setLiveMessage('Progress has been reset.')
   }, [])
@@ -581,6 +716,11 @@ export default function App() {
     return getCanonicalCode(currentLesson.codeFile.segments)
   }, [currentLesson])
 
+  const dismissMigrationNotice = useCallback(() => {
+    setMigrationNotice(null)
+    setPersisted((p) => ({ ...p, migrationNoticeShown: true }))
+  }, [])
+
   return (
     <div className="app-container">
       <aside className="sidebar" aria-label="Lesson navigation">
@@ -591,22 +731,23 @@ export default function App() {
           <ul className="lesson-nav" role="list">
             {lessons.map((lesson) => {
               const status = progress.lessonStatuses[lesson.id] ?? 'locked'
+              const effectiveStatus = gates.lessons[lesson.id].status
               const isCurrent = lesson.id === currentLesson.id
               const clickable = status !== 'locked'
               return (
                 <li key={lesson.id}>
                   <button
-                    className={`lesson-nav-item ${isCurrent ? 'current' : ''} ${status === 'locked' ? 'locked' : ''}`}
+                    className={`lesson-nav-item ${isCurrent ? 'current' : ''} ${effectiveStatus === 'locked' ? 'locked' : ''}`}
                     onClick={() => clickable && navigateTo(lesson.id)}
                     aria-current={isCurrent ? 'page' : undefined}
                     aria-disabled={!clickable}
                     disabled={!clickable}
-                    aria-label={`Lesson ${lesson.number}: ${lesson.title}`}
+                    aria-label={`Lesson ${lesson.number}: ${lesson.title} — ${statusLabel(effectiveStatus)}`}
                   >
                     <span className="lesson-number">{lesson.number}</span>
                     <span className="lesson-title">{lesson.title}</span>
                     <span className="lesson-status" aria-hidden="true">
-                      {statusLabel(status)}
+                      {statusLabel(effectiveStatus)}
                     </span>
                   </button>
                 </li>
@@ -632,6 +773,15 @@ export default function App() {
           </div>
         )}
 
+        {migrationNotice && (
+          <div className="banner banner-info" role="status">
+            <span>{migrationNotice}</span>
+            <button className="text-button" onClick={dismissMigrationNotice}>
+              Dismiss
+            </button>
+          </div>
+        )}
+
         <div aria-live="polite" aria-atomic="true" className="sr-only">
           {liveMessage}
         </div>
@@ -640,10 +790,22 @@ export default function App() {
           <h2 tabIndex={-1}>
             Lesson {currentLesson.number}: {currentLesson.title}
           </h2>
-          <span className={`status-badge ${currentStatus}`} data-testid="lesson-status-badge">
-            {statusLabel(currentStatus)}
+          <span className={`status-badge ${effectiveCurrentStatus}`} data-testid="lesson-status-badge">
+            {statusLabel(effectiveCurrentStatus)}
           </span>
         </header>
+
+        {currentLesson.type === 'coding' && understandingSummary.total > 0 && (
+          <div className="understanding-summary" data-testid="understanding-summary">
+            {progress.lessonStatuses[currentLesson.id] === 'complete' ? (
+              <span>Code passed</span>
+            ) : (
+              <span>Code needs check</span>
+            )}
+            <span aria-hidden="true"> · </span>
+            <span>Understanding {understandingSummary.passed} of {understandingSummary.total} passed</span>
+          </div>
+        )}
 
         <div className="instructions">
           {currentLesson.instructions.map((text, i) => (
@@ -660,85 +822,172 @@ export default function App() {
         {currentLesson.number === 1 && <FixtureDisplay />}
 
         {currentLesson.codeFile && (
-          <CodeBlock
-            file={currentLesson.codeFile}
-            currentLesson={currentLesson}
-            gapValues={persisted.gapValues}
-            onGapChange={handleGapChange}
-            invalidGaps={invalidGaps}
-            inputRefs={inputRefs}
+          <div className="lesson-workspace">
+            <CodeBlock
+              file={currentLesson.codeFile}
+              currentLesson={currentLesson}
+              gapValues={persisted.gapValues}
+              onGapChange={handleGapChange}
+              invalidGaps={invalidGaps}
+              inputRefs={inputRefs}
+            />
+            {lessonTraces.length > 0 && (
+              <div className="trace-sidebar">
+                {lessonTraces.map((trace) => (
+                  <div key={trace.id} className="trace-sidebar-item">
+                    <span className="trace-sidebar-label">{trace.panelTitle}</span>
+                    <button
+                      ref={(el) => {
+                        if (el) traceTriggerRefs.current.set(trace.id, el)
+                      }}
+                      className="trace-trigger"
+                      onClick={() =>
+                        setOpenTraceId((open) => (open === trace.id ? null : trace.id))
+                      }
+                      aria-expanded={openTraceId === trace.id}
+                      aria-controls={`trace-panel-${trace.id}`}
+                    >
+                      {trace.buttonLabel}
+                    </button>
+                    {openTrace?.id === trace.id && (
+          <TracePanel
+            trace={openTrace}
+            onClose={() => {
+              const traceId = openTrace.id
+              setOpenTraceId(null)
+              requestAnimationFrame(() => {
+                traceTriggerRefs.current.get(traceId)?.focus()
+              })
+            }}
+            triggerRef={{
+              get current() {
+                return traceTriggerRefs.current.get(openTrace.id) ?? null
+              },
+            } as React.RefObject<HTMLButtonElement | null>}
           />
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         )}
 
+        <div className="lesson-checks">
+          <div className="actions">
+            {currentLesson.type === 'reading' && <button className="action-button" onClick={handleContinue}>Continue</button>}
+            {currentLesson.type === 'coding' && <>
+              <button className="action-button" onClick={handleCheck} data-testid="check-my-work">Check my work</button>
+              <button className="action-button action-button-secondary" onClick={() => setShowSolution((s) => !s)}>
+                {showSolution ? 'Hide solution' : 'Show solution'}
+              </button>
+            </>}
+          </div>
         {currentLesson.type === 'coding' && Object.keys(checkResults).length > 0 && (
           <div className="feedback-area" data-testid="feedback-area">
             {allValid(checkResults as Record<string, ValidationResult>) ? (
               <p className="check-summary success" data-testid="check-summary-success">
-                <span aria-hidden="true">✓</span> All gaps are correct. You
-                can continue.
+                <span aria-hidden="true">✓</span>{' '}
+                {understandingSummary.total > 0 && understandingSummary.passed < understandingSummary.total
+                  ? `All gaps are correct. Complete ${understandingSummary.total - understandingSummary.passed} understanding check${understandingSummary.total - understandingSummary.passed === 1 ? '' : 's'} to ${currentLesson.number === 5 ? 'run simulated test' : 'continue'}.`
+                  : currentLesson.number === 5
+                    ? 'All gaps are correct. Lesson complete. Run simulated test is available.'
+                    : 'All gaps are correct. Lesson complete. Continue is available.'}
               </p>
             ) : (
               <div>
                 <p className="check-summary error" data-testid="check-summary-error">
                   <span aria-hidden="true">✗</span>{' '}
                   {Object.values(checkResults).filter((r) => !r.valid).length} gap
-                  {Object.values(checkResults).filter((r) => !r.valid).length === 1
-                    ? ''
-                    : 's'}{' '}
-                  need correction.
+                  {Object.values(checkResults).filter((r) => !r.valid).length === 1 ? '' : 's'} need correction.
                 </p>
                 <ul className="feedback-list">
-                  {currentLesson.editableGaps
-                    .filter((id) => !checkResults[id]?.valid)
-                    .map((id) => (
-                      <li key={id} data-testid="feedback-item">
-                        <strong>{gapDefinitions[id]?.label ?? id}:</strong>{' '}
-                        {checkResults[id]?.feedback}
-                      </li>
-                    ))}
+                  {currentLesson.editableGaps.filter((id) => !checkResults[id]?.valid).map((id) => (
+                    <li key={id} data-testid="feedback-item">
+                      <strong>{gapDefinitions[id]?.label ?? id}:</strong> {checkResults[id]?.feedback}
+                    </li>
+                  ))}
                 </ul>
               </div>
             )}
           </div>
         )}
 
-        <div className="actions">
-          {currentLesson.type === 'reading' && (
-            <button className="action-button" onClick={handleContinue}>
-              Continue
-            </button>
-          )}
+        {currentLesson.type === 'coding' && getQuestionsForLesson(currentLesson.id).length > 0 && (
+          <div className="questions-panel">
+            {getQuestionsForLesson(currentLesson.id).map((question) => {
+              const selected = persisted.questionSelections[question.id]
+              const checked = persisted.checkedQuestionSelections[question.id]
+              const showFeedback = checked !== undefined && checked === selected
+              const isCorrect = checked === question.correctChoiceId
+              const feedbackId = `feedback-${question.id}`
+              const errorText = questionErrors[question.id]
+              const errorId = `error-${question.id}`
+              const descriptionId = errorText ? errorId : showFeedback ? feedbackId : undefined
+              return (
+                <div className="question-item" key={question.id} data-testid="question-item">
+                  {question.prompt && (
+                    <p className="question-prompt">{question.prompt}</p>
+                  )}
+                  <fieldset aria-describedby={descriptionId} aria-invalid={errorText ? true : undefined}>
+                    <legend>{question.question}</legend>
+                    {question.choices.map((choice) => (
+                      <label
+                        key={choice.id}
+                        className={`question-choice ${showFeedback && checked === choice.id ? (isCorrect ? 'correct' : 'incorrect') : ''}`}
+                      >
+                        <input
+                          type="radio"
+                          name={question.id}
+                          value={choice.id}
+                          checked={selected === choice.id}
+                          onChange={() => handleQuestionSelection(question.id, choice.id)}
+                        />
+                        <span>{choice.text}</span>
+                      </label>
+                    ))}
+                  </fieldset>
+                  {errorText && (
+                    <div id={errorId} className="question-error">
+                      {errorText}
+                    </div>
+                  )}
+                  <button
+                    className="action-button action-button-secondary"
+                    onClick={() => handleQuestionCheck(question.id)}
+                    data-testid="check-understanding-button"
+                    aria-describedby={descriptionId}
+                  >
+                    Check understanding
+                  </button>
+                  {showFeedback && (
+                    <div
+                      id={feedbackId}
+                      className={`question-feedback ${isCorrect ? 'correct' : 'incorrect'}`}
+                    >
+                      <p>{question.feedback[checked]}</p>
+                      {!isCorrect && (
+                        <span className="question-state">Not yet — try again</span>
+                      )}
+                      {isCorrect && (
+                        <span className="question-passed">Passed</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
 
           {currentLesson.type === 'coding' && (
-            <>
-              <button className="action-button" onClick={handleCheck}>
-                Check my work
-              </button>
-              <button
-                className="action-button action-button-secondary"
-                onClick={() => setShowSolution((s) => !s)}
-              >
-                {showSolution ? 'Hide solution' : 'Show solution'}
-              </button>
-              {currentLesson.number < 5 && (
-                <button
-                  className="action-button"
-                  onClick={handleContinue}
-                  disabled={currentStatus !== 'complete'}
-                >
-                  Continue
-                </button>
+            <div className="actions progression-actions">
+              {currentLesson.number < 5 ? (
+                <button className="action-button" onClick={handleContinue} disabled={effectiveCurrentStatus !== 'complete'}>Continue</button>
+              ) : (
+                <button className="action-button" onClick={handleRunSimulation} disabled={!canRunSimulation} data-testid="run-simulation">Run simulated test</button>
               )}
-              {currentLesson.number === 5 && (
-                <button
-                  className="action-button"
-                  onClick={handleRunSimulation}
-                  disabled={!canRunSimulation}
-                >
-                  Run simulated test
-                </button>
-              )}
-            </>
+            </div>
           )}
         </div>
 
@@ -762,7 +1011,7 @@ export default function App() {
                 <code>
                   {currentLesson.workedExample.segments
                     .map((s) =>
-                      s.type === 'text' ? s.content : canonicalAnswers[s.gapId] ?? '',
+                      s.type === 'text' ? stripRegionMarkers(s.content) : canonicalAnswers[s.gapId] ?? '',
                     )
                     .join('')}
                 </code>
@@ -775,12 +1024,20 @@ export default function App() {
           <SimulationView gapValues={persisted.gapValues} />
         )}
 
-        {persisted.simulationComplete && (
+        {persisted.simulationComplete && canRunSimulation && (
           <div className="tutorial-complete" data-testid="tutorial-complete">
             <p>
               <strong>Tutorial complete!</strong>
             </p>
             <div className="actions">
+              <button
+                ref={walkthroughTriggerRef}
+                className="action-button action-button-secondary"
+                onClick={() => setShowWalkthrough(true)}
+                data-testid="walkthrough-button"
+              >
+                Walk through my test
+              </button>
               <button
                 className="action-button action-button-secondary"
                 onClick={() => navigateTo('lesson1')}
@@ -795,6 +1052,16 @@ export default function App() {
               </button>
             </div>
           </div>
+        )}
+
+        {showWalkthrough && persisted.simulationComplete && canRunSimulation && (
+          <WalkthroughPanel
+            stages={walkthroughStages}
+            onClose={() => {
+              setShowWalkthrough(false)
+            }}
+            triggerRef={walkthroughTriggerRef}
+          />
         )}
       </main>
 

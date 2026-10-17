@@ -76,6 +76,10 @@ Each invocation uses `--print --no-session <prompt>` and runs in the target.
 The prompt names the machine, supplies absolute seed and run-plan paths, and
 requests JSON fields named by outgoing edges. The validator also returns an
 array `findings`, which goes back to the doer to record as subtasks and fix.
+Prompts larger than 32 KiB in UTF-8 are passed as `@<temporary-file>` to
+avoid operating-system argument limits. Custom harnesses must support Pi's
+text-file expansion syntax. The complete prompt is preserved, and the file
+is removed after the harness exits, including on failure.
 Machines may print commentary; the factory reads the last line that parses
 as JSON. Machines must not stage or commit. Product edits stay in the target;
 the planner and doer may also update the run's plan outside it.

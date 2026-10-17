@@ -3,14 +3,15 @@ using System.Text.Json;
 var workspace = Environment.GetEnvironmentVariable("DOUBLE_WORKSPACE")!;
 var calls = Path.Combine(workspace, "calls");
 Directory.CreateDirectory(calls);
-var prompt = args.Last();
+var promptArgument = args.Last();
+var prompt = promptArgument.StartsWith('@') ? File.ReadAllText(promptArgument[1..]) : promptArgument;
 var role = Environment.GetEnvironmentVariable("FACTORY_MACHINE") ?? prompt.Split('\n').First(line => line.StartsWith("Machine: "))[9..].Trim();
 var priorCalls = Directory.GetFiles(calls, "*.json").Select(file =>
     JsonSerializer.Deserialize<JsonElement>(File.ReadAllText(file))).ToArray();
 var callPath = Path.Combine(calls, $"{DateTime.UtcNow.Ticks:D19}-{Guid.NewGuid()}.json");
 File.WriteAllText(callPath + ".tmp",
     JsonSerializer.Serialize(new { agent = args[0], role, cwd = Directory.GetCurrentDirectory(),
-        args = args.Skip(1) }));
+        promptArgument, args = args.Skip(1).SkipLast(1).Append(prompt) }));
 
 File.Move(callPath + ".tmp", callPath);
 
@@ -59,8 +60,22 @@ if (role == "synthesiser")
 
 // These machines implement the scenario's behavior outside the factory. Prompt
 // assertions independently check that the factory actually requests each result.
-if (role == "validator")
+if (role is "validator" or "ux_validator" or "oo_validator")
 {
+    if (role != "validator")
+    {
+        var rejected = Environment.GetEnvironmentVariable("DOUBLE_REJECT_REVIEWER") == role
+            && !priorCalls.Any(c => c.GetProperty("role").GetString() == role);
+        Console.WriteLine(JsonSerializer.Serialize(new { satisfied = !rejected,
+            findings = rejected ? new[] { $"Fix finding from {role}." } : Array.Empty<string>() }));
+        return;
+    }
+    if (Environment.GetEnvironmentVariable("DOUBLE_FAIL_VALIDATOR") == "1")
+    {
+        Console.Error.WriteLine("Validator failed deliberately.");
+        Environment.ExitCode = 1;
+        return;
+    }
     if (Environment.GetEnvironmentVariable("DOUBLE_PROSE_RESULT") == "1")
     {
         Console.WriteLine("I did some work but have no structured result.");

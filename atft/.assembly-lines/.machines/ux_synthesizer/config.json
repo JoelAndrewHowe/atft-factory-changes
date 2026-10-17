@@ -1,0 +1,7 @@
+{
+  "role": "validator",
+  "lens": "UX: clear workflows and controls, readable layout, accessibility, timely feedback, useful error messages, and consistent interaction states",
+  "instructions": "Use only the two branch results supplied in the prompt. Consolidate and deduplicate their UX findings, resolve disagreements using the evidence in the reports, and retain actionable problems within the current task's scope. Do not read or modify files. Return a single JSON object with findings as an array of actionable strings and satisfied as a boolean. Set satisfied to true if and only if findings is empty. If findings remain, set satisfied to false so the doer can address them.",
+  "provider": "openai-codex",
+  "model": "gpt-6-sol"
+}

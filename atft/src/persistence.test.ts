@@ -13,6 +13,7 @@ import {
   type PersistedTutorialState,
 } from './persistence';
 import { ALL_GAP_IDS, lessons, type LessonData } from './lessons';
+import { questions } from './questions';
 
 class FakeStorage implements Storage {
   private store = new Map<string, string>();
@@ -78,6 +79,9 @@ function makeMinimalPersistedState(
     gapValues: {},
     lastCheckedValues: {},
     simulationComplete: false,
+    questionSelections: {},
+    checkedQuestionSelections: {},
+    migrationNoticeShown: false,
     ...overrides,
   };
 }
@@ -197,7 +201,7 @@ describe('deriveProgressState with real lesson data', () => {
     const lastChecked = { ...gapValues };
     const progress = deriveProgressState(gapValues, lastChecked, 2, true, config);
     expect(progress.lessonStatuses['lesson2']).toBe('complete');
-    expect(progress.lessonStatuses['lesson3']).toBe('available');
+    expect(progress.lessonStatuses['lesson3']).toBe('locked');
   });
 
   it('marks needs-check when current values differ from lastChecked', () => {
@@ -246,6 +250,21 @@ describe('loadState', () => {
     const config = makeDefaultConfig();
     expect(loadState(config)).toBeNull();
   });
+
+  it.each(['questionSelections', 'checkedQuestionSelections'] as const)(
+    'recovers safely when an iteration 002 save omits %s', (field) => {
+      const storage = new FakeStorage();
+      const config = makeDefaultConfig(storage);
+      const saved: Record<string, unknown> = { ...makeMinimalPersistedState(config) };
+      delete saved[field];
+      storage.setItem(config.storageKey, JSON.stringify(saved));
+      const result = loadState(config)!;
+      expectFreshResult(result, config);
+      expect(result.error).toContain('incompatible');
+      expect(result.runtime.questionSelections).toEqual({});
+      expect(result.runtime.checkedQuestionSelections).toEqual({});
+    },
+  );
 
   it('returns fresh state when schema version mismatches', () => {
     const storage = new FakeStorage();
@@ -408,7 +427,7 @@ describe('loadState', () => {
     );
     const result = loadState(config)!;
     expect(result.runtime.progress.lessonStatuses['lesson2']).toBe('complete');
-    expect(result.runtime.progress.lessonStatuses['lesson3']).toBe('available');
+    expect(result.runtime.progress.lessonStatuses['lesson3']).toBe('locked');
   });
 
   it('marks needs-check when current values differ from lastChecked', () => {
@@ -528,6 +547,8 @@ describe('loadState', () => {
             },
           },
           simulationComplete: true,
+          questionSelections: Object.fromEntries(questions.map((q) => [q.id, q.correctChoiceId])),
+          checkedQuestionSelections: Object.fromEntries(questions.map((q) => [q.id, q.correctChoiceId])),
         }),
       ),
     );

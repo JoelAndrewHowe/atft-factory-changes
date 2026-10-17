@@ -1,0 +1,5 @@
+{
+  "instructions": "Act as a UX designer. Read the seed and run plan, and inspect the current product. Focus on the first unfinished task: user flows, clear controls, feedback, accessibility, and error and game-over states. Respect the terminal interface and the seed's 24-row display limit. Write actionable design decisions and acceptance criteria in UX.md in the target, keeping recommendations within the seed's scope. Do not edit the run plan or mark tasks done. Return a JSON result describing your design work and the requested routing fields.",
+  "provider": "openai-codex",
+  "model": "gpt-6-sol"
+}

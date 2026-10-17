@@ -254,10 +254,18 @@ export const learnerFeatureFile: CodeFile = {
   segments: parseTemplate(
     'Feature: Record a vaccination\n' +
       '  Scenario: Record an administered vaccination for an existing patient\n' +
+      '    // region:feature-given\n' +
       '    {{feature.given}} a vaccination for patient "{{feature.patient}}"\n' +
+      '    // endregion:feature-given\n' +
+      '    // region:feature-when\n' +
       '    {{feature.when}} I submit the vaccination\n' +
+      '    // endregion:feature-when\n' +
+      '    // region:feature-then\n' +
       '    {{feature.then}} the response status is {{feature.status}}\n' +
-      '    And the recorded vaccination matches the request',
+      '    // endregion:feature-then\n' +
+      '    // region:feature-and\n' +
+      '    And the recorded vaccination matches the request\n' +
+      '    // endregion:feature-and',
   ),
 };
 
@@ -296,8 +304,10 @@ export const learnerImmunizationFile: CodeFile = {
       '    [JsonPropertyName("patient")]\n' +
       '    public {{model.patient}} Patient { get; set; } = new();\n' +
       '\n' +
+      '    // region:occurrenceDateTime\n' +
       '    [JsonPropertyName("{{model.date}}")]\n' +
       '    public string OccurrenceDateTime { get; set; } = "";\n' +
+      '    // endregion:occurrenceDateTime\n' +
       '\n' +
       '    [JsonPropertyName("lotNumber")]\n' +
       '    public string LotNumber { get; set; } = "";\n' +
@@ -309,11 +319,13 @@ export const learnerImmunizationFile: CodeFile = {
       '    public string Text { get; set; } = "";\n' +
       '}\n' +
       '\n' +
+      '// region:patientReference\n' +
       'public sealed class PatientReference\n' +
       '{\n' +
       '    [JsonPropertyName("reference")]\n' +
       '    public string Reference { get; set; } = "";\n' +
-      '}',
+      '}\n' +
+      '// endregion:patientReference',
   ),
 };
 
@@ -383,8 +395,11 @@ export const learnerStepsFile: CodeFile = {
       '    private Immunization _request = null!;\n' +
       '    private HttpResponseMessage _response = null!;\n' +
       '\n' +
+      '    // region:given-body\n' +
+      '    // region:given-binding\n' +
       '    [Given("a vaccination for patient {string}")]\n' +
       '    public void GivenAVaccination(string patientReference)\n' +
+      '    // endregion:given-binding\n' +
       '    {\n' +
       '        _request = new Immunization\n' +
       '        {\n' +
@@ -395,37 +410,58 @@ export const learnerStepsFile: CodeFile = {
       '            LotNumber = "TRAINING-FLU-001"\n' +
       '        };\n' +
       '    }\n' +
+      '    // endregion:given-body\n' +
       '\n' +
+      '    // region:when-binding\n' +
       '    [When("I submit the vaccination")]\n' +
       '    public async Task WhenISubmitTheVaccination()\n' +
+      '    // endregion:when-binding\n' +
       '    {\n' +
+      '        // region:request-message\n' +
       '        using var message = new HttpRequestMessage(HttpMethod.{{request.method}}, "{{request.endpoint}}");\n' +
+      '        // endregion:request-message\n' +
       '        message.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/fhir+json"));\n' +
       '        message.Headers.Add("Prefer", "return=representation");\n' +
+      '        // region:serialize\n' +
       '        message.Content = new StringContent(\n' +
       '            JsonSerializer.Serialize(_request), Encoding.UTF8, "{{request.media}}");\n' +
+      '        // endregion:serialize\n' +
+      '        // region:sendasync\n' +
       '        _response = await Client.SendAsync(message);\n' +
+      '        // endregion:sendasync\n' +
       '    }\n' +
       '\n' +
+      '    // region:then-status-binding\n' +
       '    [Then("the response status is {int}")]\n' +
       '    public void ThenTheResponseStatusIs(int expectedStatus)\n' +
+      '    // endregion:then-status-binding\n' +
       '    {\n' +
+      '        // region:then-status-body\n' +
       '        Assert.That((int)_response.StatusCode, Is.EqualTo({{response.status}}));\n' +
+      '        // endregion:then-status-body\n' +
       '    }\n' +
       '\n' +
+      '    // region:then-data-binding\n' +
       '    [Then("the recorded vaccination matches the request")]\n' +
       '    public async Task ThenTheRecordedVaccinationMatches()\n' +
+      '    // endregion:then-data-binding\n' +
       '    {\n' +
       '        var json = await _response.Content.ReadAsStringAsync();\n' +
+      '        // region:deserialize\n' +
       '        var actual = JsonSerializer.Deserialize<{{response.model}}>(json)\n' +
       '            ?? throw new InvalidOperationException("Expected an Immunization response.");\n' +
+      '        // endregion:deserialize\n' +
       '        Assert.That(actual.Id, Is.Not.Null.And.Not.Empty);\n' +
       '        Assert.That(actual.ResourceType, Is.EqualTo("Immunization"));\n' +
       '        Assert.That(actual.Status, Is.EqualTo(_request.Status));\n' +
+      '        // region:patient-assertion\n' +
       '        Assert.That(actual.Patient.Reference, Is.EqualTo({{response.patient}}));\n' +
+      '        // endregion:patient-assertion\n' +
       '        Assert.That(actual.VaccineCode.Text, Is.EqualTo(_request.VaccineCode.Text));\n' +
       '        Assert.That(actual.OccurrenceDateTime, Is.EqualTo(_request.OccurrenceDateTime));\n' +
+      '        // region:lot-assertion\n' +
       '        Assert.That(actual.LotNumber, Is.EqualTo({{response.lot}}));\n' +
+      '        // endregion:lot-assertion\n' +
       '    }\n' +
       '\n' +
       '    [AfterScenario]\n' +
@@ -515,8 +551,27 @@ export function assembleCode(segments: Segment[], values: Record<string, string>
     .join('');
 }
 
+// Region comments are internal mapping metadata, never learner-facing code.
+export function stripRegionMarkers(code: string): string {
+  return code.replace(/\n[ \t]*\/\/ endregion:[\w-]+$/, '')
+    .replace(/^[ \t]*\/\/ (?:end)?region:[\w-]+\n/gm, '');
+}
+
+export function extractRegion(code: string, regionId: string): string | undefined {
+  const startMarker = `// region:${regionId}`;
+  const endMarker = `// endregion:${regionId}`;
+  const startIndex = code.indexOf(startMarker);
+  if (startIndex === -1) return undefined;
+  const afterStart = startIndex + startMarker.length;
+  const contentStart = code[afterStart] === '\n' ? afterStart + 1 : afterStart;
+  const endIndex = code.indexOf(endMarker, contentStart);
+  if (endIndex === -1) return stripRegionMarkers(code.slice(contentStart));
+  const contentEnd = code.slice(contentStart, endIndex).replace(/[ \t]*\n[ \t]*$/, '');
+  return stripRegionMarkers(contentEnd);
+}
+
 export function getCanonicalCode(segments: Segment[]): string {
-  return assembleCode(segments, canonicalAnswers as unknown as Record<string, string>);
+  return stripRegionMarkers(assembleCode(segments, canonicalAnswers as unknown as Record<string, string>));
 }
 
 export const lessons: LessonData[] = [

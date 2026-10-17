@@ -5,6 +5,26 @@ import {
   canonicalAnswers,
   type GapId,
 } from '../../src/lessons'
+import { type QuestionId } from '../../src/questions'
+
+// Independent acceptance answers: never consult the lesson's correctChoiceId here.
+const requiredAnswers: Record<QuestionId, 'A' | 'B' | 'C'> = {
+  'lesson2.binding': 'A',
+  'lesson2.patient': 'A',
+  'lesson3.json-name': 'B',
+  'lesson4.send': 'C',
+  'lesson5.assertion': 'B',
+}
+
+// The acceptance suite defines the required lesson/question assignment itself.
+// Never ask production content which questions the test should submit.
+const requiredQuestionIds: Record<number, readonly QuestionId[]> = {
+  1: [],
+  2: ['lesson2.binding', 'lesson2.patient'],
+  3: ['lesson3.json-name'],
+  4: ['lesson4.send'],
+  5: ['lesson5.assertion'],
+}
 
 export class TutorialPage {
   readonly page: Page
@@ -125,6 +145,14 @@ export class TutorialPage {
     return this.page.locator('[role="dialog"]')
   }
 
+  get walkthroughButton(): Locator {
+    return this.page.getByTestId('walkthrough-button')
+  }
+
+  get walkthroughPanel(): Locator {
+    return this.page.getByRole('region', { name: 'Your completed test — simulated walkthrough' })
+  }
+
   tab(name: string): Locator {
     return this.page.getByRole('tab', { name })
   }
@@ -141,6 +169,22 @@ export class TutorialPage {
     return this.page.getByLabel(def.label)
   }
 
+  traceTrigger(name: string): Locator {
+    return this.page.getByRole('button', { name })
+  }
+
+  tracePanel(name: string): Locator {
+    return this.page.getByRole('region', { name: new RegExp(name, 'i') })
+  }
+
+  questionChoice(questionId: QuestionId, choiceId: string): Locator {
+    return this.page.locator(`input[name="${questionId}"][value="${choiceId}"]`)
+  }
+
+  understandingCheckButton(): Locator {
+    return this.page.getByRole('button', { name: 'Check understanding' })
+  }
+
   async fillGap(gapId: GapId, value?: string): Promise<void> {
     const input = this.gapInput(gapId)
     const text = value ?? canonicalAnswers[gapId]
@@ -152,6 +196,14 @@ export class TutorialPage {
     for (const gapId of lesson.editableGaps) {
       await this.fillGap(gapId)
     }
+  }
+
+  async answerQuestion(questionId: QuestionId, choiceId: 'A' | 'B' | 'C'): Promise<void> {
+    await this.questionChoice(questionId, choiceId).check()
+  }
+
+  async checkUnderstanding(questionId: QuestionId): Promise<void> {
+    await this.page.locator(`div.question-item:has(input[name="${questionId}"])`).getByRole('button', { name: 'Check understanding' }).click()
   }
 
   async checkWork(): Promise<void> {
@@ -169,6 +221,16 @@ export class TutorialPage {
       await this.fillLessonGaps(lessonNumber)
       await this.checkWork()
       await expect(this.checkSummarySuccess).toBeVisible()
+    }
+    // Answer understanding questions
+    const ids = requiredQuestionIds[lessonNumber]
+    const renderedIds = await this.page.locator('.questions-panel input[type="radio"][value="A"]')
+      .evaluateAll((nodes) => nodes.map((node) => (node as HTMLInputElement).name))
+    expect(renderedIds).toEqual(ids)
+    for (const id of ids) {
+      await this.answerQuestion(id, requiredAnswers[id])
+      await this.checkUnderstanding(id)
+      await expect(this.page.locator(`div.question-item:has(input[name="${id}"]) .question-feedback`)).toContainText('Passed')
     }
     if (!isLast) {
       await this.continue()

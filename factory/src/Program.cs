@@ -73,7 +73,7 @@ try
             Finish with a single line of JSON. Do not wrap it in Markdown.
             """;
         (int Code, string Out, string Error) response;
-        var input = prompt;
+        var (input, promptFile) = await PromptInput.PrepareAsync(prompt);
         try
         {
             var arguments = new List<string> { "--print", "--no-session" };
@@ -86,19 +86,25 @@ try
         {
             throw new Exception($"Could not run the {role}: " + error.Message);
         }
-        if (response.Code != 0) throw new Exception($"Could not run the {role}: " + response.Error.Trim());
-        JsonElement result = default;
-        foreach (var line in response.Out.Split('\n'))
+        finally
         {
-            try { result = JsonSerializer.Deserialize<JsonElement>(line); }
-            catch (JsonException) { }
+            if (promptFile != null) File.Delete(promptFile);
         }
-        if (result.ValueKind != JsonValueKind.Object)
-            throw new Exception($"Could not read the {role}'s result.");
-        if ((role == "validator" || line.Machines[role].Role == "validator") &&
-            (!result.TryGetProperty("findings", out var reported) || reported.ValueKind != JsonValueKind.Array))
-            throw new Exception($"Could not read the {role}'s result.");
-        return result;
+        if (response.Code != 0) throw new Exception($"Could not run the {role}: " + response.Error.Trim());
+        var responsePath = Path.Combine(folder, "runs", runName, $"{role}.response.txt");
+        await File.WriteAllTextAsync(responsePath, response.Out);
+        try
+        {
+            var result = MachineResult.Parse(response.Out, role);
+            if ((role == "validator" || line.Machines[role].Role == "validator") &&
+                (!result.TryGetProperty("findings", out var reported) || reported.ValueKind != JsonValueKind.Array))
+                throw new Exception($"Could not read the {role}'s result. The findings field must be a JSON array (use [] when there are no findings).");
+            return result;
+        }
+        catch (Exception error)
+        {
+            throw new Exception($"{error.Message} Raw response: {responsePath}", error);
+        }
     }
 
     var findings = "[]";

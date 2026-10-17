@@ -547,6 +547,100 @@ public sealed partial class FactorySteps
         Assert.That(names.All(n => !n.StartsWith("factory/") && !n.StartsWith("unrelated") && n != "untracked.txt"), Is.True);
     }
 
+    [TestCase(false)]
+    [TestCase(true)]
+    public void LargeValidationPromptUsesTemporaryFile(bool failValidator)
+    {
+        try
+        {
+            CopyFactory();
+            NewTarget();
+            Seed();
+            Agent();
+            Satisfied();
+            ExistingPlan(false);
+            var largeContent = string.Concat(Enumerable.Repeat("Vaccination fixture é漢字\n", 12000)) + "END-OF-LARGE-DIFF\n";
+            File.WriteAllText(Path.Combine(target, "large.txt"), largeContent);
+            if (failValidator) environment["DOUBLE_FAIL_VALIDATOR"] = "1";
+            OnePass();
+            Assert.That(result.Code, Is.EqualTo(failValidator ? 1 : 0), result.Error);
+            var call = RoleCalls("validator").Single();
+            var argument = call.GetProperty("promptArgument").GetString()!;
+            Assert.That(argument, Does.StartWith("@"));
+            Assert.That(File.Exists(argument[1..]), Is.False, "Temporary prompt must be deleted on success and failure.");
+            Assert.That(Prompt("validator"), Does.Contain("+" + largeContent.TrimEnd().Replace("\n", "\n+")));
+            if (failValidator) Assert.That(result.Error, Does.Contain("Validator failed deliberately."));
+        }
+        finally { Cleanup(); }
+    }
+
+    [Test]
+    public void SmallValidationPromptDoesNotUseTemporaryFile()
+    {
+        try
+        {
+            CopyFactory();
+            NewTarget();
+            Seed();
+            Agent();
+            Satisfied();
+            ExistingPlan(false);
+            // No large file; diff stays small.
+            OnePass();
+            Assert.That(result.Code, Is.Zero, result.Error);
+            var call = RoleCalls("validator").Single();
+            var argument = call.GetProperty("promptArgument").GetString()!;
+            Assert.That(argument, Does.Not.StartWith("@"), "Small prompts must be passed inline.");
+        }
+        finally { Cleanup(); }
+    }
+
+    [TestCase(null)]
+    [TestCase("ux_validator")]
+    [TestCase("oo_validator")]
+    public void SequentialReviewsPassFindingsBackBeforeCommit(string? rejectedReviewer)
+    {
+        try
+        {
+            CopyFactory();
+            NewTarget();
+            Seed();
+            Agent();
+            Satisfied();
+            ExistingPlan(false);
+            foreach (var name in new[] { "ux_validator", "oo_validator" })
+            {
+                var folder = Path.Combine(target, ".assembly-lines", ".machines", name);
+                Directory.CreateDirectory(folder);
+                File.WriteAllText(Path.Combine(folder, "config.json"), JsonSerializer.Serialize(new {
+                    harness, role = "validator", lens = name + " lens", instructions = name + " instructions"
+                }));
+            }
+            AssemblyLine(Careful.Replace("validator -> planner [label=\"satisfied\"]", """
+                validator -> ux_validator [label="satisfied"]
+                ux_validator -> doer [label="not satisfied"]
+                ux_validator -> oo_validator [label="satisfied"]
+                oo_validator -> doer [label="not satisfied"]
+                oo_validator -> planner [label="satisfied"]
+                """));
+            if (rejectedReviewer != null) environment["DOUBLE_REJECT_REVIEWER"] = rejectedReviewer;
+            OnePass();
+            Assert.That(result.Code, Is.Zero, result.Error);
+            foreach (var name in new[] { "ux_validator", "oo_validator" })
+            {
+                Assert.That(Prompt(name), Does.Contain(name + " lens").And.Contain(name + " instructions")
+                    .And.Contain("Change neither the plan nor the product files.").And.Contain("+Work for"));
+            }
+            Assert.That(RoleCalls("doer").Count(), Is.EqualTo(rejectedReviewer == null ? 1 : 2));
+            if (rejectedReviewer != null)
+                Assert.That(RoleCalls("doer").Last().GetProperty("args").EnumerateArray().Last().GetString(),
+                    Does.Contain($"Fix finding from {rejectedReviewer}."));
+            var roles = Calls().Select(c => c.GetProperty("role").GetString()).ToArray();
+            Assert.That(roles.TakeLast(4), Is.EqualTo(new[] { "validator", "ux_validator", "oo_validator", "planner" }));
+        }
+        finally { Cleanup(); }
+    }
+
     private string LinePath => Path.Combine(target, ".assembly-lines", lineName + ".dot");
 
     private void ConfigureMachines()
@@ -802,5 +896,6 @@ public sealed partial class FactorySteps
     public void Cleanup()
     {
         if (workspace != null && Directory.Exists(workspace)) Directory.Delete(workspace, true);
+        environment.Clear();
     }
 }

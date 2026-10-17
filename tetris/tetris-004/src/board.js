@@ -47,9 +47,84 @@ function createBoard() {
       grid[y][x] = value;
       return true;
     },
+    canPlace(shape, x, y) {
+      for (let r = 0; r < shape.length; r++) {
+        for (let c = 0; c < shape[r].length; c++) {
+          if (shape[r][c]) {
+            const boardX = x + c;
+            const boardY = y + r;
+            if (
+              boardX < 0 ||
+              boardX >= BOARD_WIDTH ||
+              boardY < 0 ||
+              boardY >= BOARD_HEIGHT ||
+              grid[boardY][boardX] !== 0
+            ) {
+              return false;
+            }
+          }
+        }
+      }
+      return true;
+    },
+    lockPiece(shape, x, y, value = 1) {
+      for (let r = 0; r < shape.length; r++) {
+        for (let c = 0; c < shape[r].length; c++) {
+          if (shape[r][c]) {
+            const boardX = x + c;
+            const boardY = y + r;
+            if (boardX >= 0 && boardX < BOARD_WIDTH && boardY >= 0 && boardY < BOARD_HEIGHT) {
+              grid[boardY][boardX] = value;
+            }
+          }
+        }
+      }
+    },
+    clearLines() {
+      let cleared = 0;
+      for (let r = BOARD_HEIGHT - 1; r >= 0; r--) {
+        if (grid[r].every((cell) => cell !== 0)) {
+          grid.splice(r, 1);
+          grid.unshift(Array(BOARD_WIDTH).fill(0));
+          cleared++;
+          r++; // re-check this row
+        }
+      }
+      return cleared;
+    },
+  };
+}
+
+function createReadOnlyBoard(board) {
+  return {
+    get width() {
+      return board.width;
+    },
+    get height() {
+      return board.height;
+    },
+    get length() {
+      return board.length;
+    },
+    forEach(callback) {
+      board.forEach(callback);
+    },
+    [Symbol.iterator]() {
+      return board[Symbol.iterator]();
+    },
+    toGrid() {
+      return board.toGrid();
+    },
+    getCell(x, y) {
+      return board.getCell(x, y);
+    },
+    canPlace(shape, x, y) {
+      return board.canPlace(shape, x, y);
+    },
   };
 }
 
 module.exports = {
   createBoard,
+  createReadOnlyBoard,
 };

@@ -1,0 +1,7 @@
+{
+  "provider": "openai-codex",
+  "model": "gpt-6-sol",
+  "role": "validator",
+  "lens": "UX: clear workflows and controls, readable layout, accessibility, timely feedback, useful error messages, and consistent interaction states",
+  "instructions": "Review only the current task's changes for actionable UX problems within its scope. Use the seed and UX.md if present to understand the intended users and interface. Do not assume this product is a game or terminal application. Do not modify files or redesign unrelated features. Return a JSON object with satisfied and findings; findings must be an array of specific, actionable strings, or [] when no problems are found. The synthesizer decides which findings require another attempt."
+}

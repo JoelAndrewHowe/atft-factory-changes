@@ -1,0 +1,4 @@
+#!/usr/bin/env python3
+"""Retired: this workspace uses authenticated OpenAI Codex only."""
+import sys
+sys.exit("OpenRouter is disabled. Use Pi with provider openai-codex and model gpt-6-sol.")
