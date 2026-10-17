@@ -99,6 +99,17 @@ if (role is "validator" or "ux_validator" or "oo_validator")
         Console.WriteLine("{\"satisfied\":false,\"findings\":[\"Earlier verdict\"]}");
         Console.WriteLine(preamble);
     }
+    if (Environment.GetEnvironmentVariable("DOUBLE_SUGGESTIONS") == "1")
+    {
+        Console.WriteLine("{\"satisfied\":true,\"findings\":[],\"suggestions\":[\"Add UI wiring in its deferred task.\"]}");
+        return;
+    }
+    var conflictMode = Environment.GetEnvironmentVariable("DOUBLE_SCOPE_CONFLICT");
+    if (conflictMode == "always" || (conflictMode == "once" && !priorCalls.Any(c => c.GetProperty("role").GetString() == role)))
+    {
+        Console.WriteLine("{\"satisfied\":false,\"scopeConflict\":true,\"findings\":[\"UI wiring is explicitly deferred; resolve the scope conflict.\"]}");
+        return;
+    }
     var mode = Environment.GetEnvironmentVariable("DOUBLE_VALIDATION");
     var satisfied = mode != "never" && (mode != "retry" || priorCalls.Any(c => c.GetProperty("role").GetString() == "validator"));
     Console.WriteLine(JsonSerializer.Serialize(new { satisfied, findings = satisfied ? Array.Empty<string>() : new[] { "Extract the task logic into a testable function." } }));

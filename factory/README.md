@@ -141,6 +141,22 @@ the doer and no extractor, reviewer or synthesiser is called. The setting is rea
 at the start of each run. The reviewers' `provider` and `model` live in their
 `config.json` files; OpenRouter needs `OPENROUTER_API_KEY` available to Pi.
 
+Implementation validators receive the same extracted task as the doer (or a
+shared plan snapshot when plan checking is off), plus the full target diff
+before and after the latest attempt. The baseline distinguishes existing work
+from changes made in that attempt. Validators should block only on unmet task
+acceptance criteria or introduced regressions; explicitly deferred work and
+unrelated existing issues are not blockers. Optional improvements go in a
+`suggestions` array, separate from blocking `findings`.
+
+A doer or validator can report `"scopeConflict": true` with non-empty
+`findings` when a necessary fix contradicts the task's explicit scope. The
+factory sends that conflict to the planner without committing or marking the
+work done. The planner clarifies the task before implementation resumes. This
+does not reset the doer attempt limit; scope revisions are also limited by
+`--max-attempts`. Existing results without `scopeConflict` keep their normal
+assembly-line routing.
+
 ## Guard rails
 
 `factory/appsettings.json` can stop a run that is going nowhere. All guards are off

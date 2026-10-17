@@ -4,7 +4,6 @@ import type { TraceDefinition } from './traces'
 interface TracePanelProps {
   trace: TraceDefinition
   onClose: () => void
-  triggerRef?: React.RefObject<HTMLButtonElement | null>
 }
 
 function HighlightedCode({
@@ -25,41 +24,33 @@ function HighlightedCode({
     <code>
       {content.slice(0, index)}
       <mark className="trace-highlight">
-        <span className="trace-highlight-glyph" aria-hidden="true">▸ </span>
-        <span className="visually-hidden">Highlighted: </span>
+        <span className="visually-hidden">Start highlighted text: </span>
         {highlight}
-        <span className="visually-hidden"> End highlight</span>
+        <span className="visually-hidden"> End highlighted text</span>
       </mark>
       {content.slice(index + highlight.length)}
     </code>
   )
 }
 
-export function TracePanel({ trace, onClose, triggerRef }: TracePanelProps) {
+export function TracePanel({ trace, onClose }: TracePanelProps) {
   const [index, setIndex] = useState(0)
   const headingRef = useRef<HTMLHeadingElement>(null)
   const backButtonRef = useRef<HTMLButtonElement>(null)
   const nextButtonRef = useRef<HTMLButtonElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const connectionRef = useRef<HTMLDivElement>(null)
-  const prevTraceIdRef = useRef(trace.id)
   const prevIndexRef = useRef(0)
+  const [announcement, setAnnouncement] = useState('')
 
   const total = trace.connections.length
-  // A different trace can render before the reset effect runs. Never index the
-  // new (possibly shorter) connection list with the previous trace's position.
-  const displayedIndex = prevTraceIdRef.current === trace.id ? Math.min(index, total - 1) : 0
-  const connection = trace.connections[displayedIndex]
+  const connection = trace.connections[index]
 
-  // Reset index when trace changes or re-opens
+  // The panel is keyed by entry in the lesson, so every opening starts at 1.
   useEffect(() => {
-    if (prevTraceIdRef.current !== trace.id) {
-      setIndex(0)
-      prevTraceIdRef.current = trace.id
-    }
     headingRef.current?.focus()
     panelRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
-  }, [trace.id])
+  }, [])
 
   // Keep the new connection visible after navigation without taking keyboard focus
   // away from the navigation controls (or the heading when a control disables).
@@ -76,28 +67,19 @@ export function TracePanel({ trace, onClose, triggerRef }: TracePanelProps) {
       if (e.key === 'Escape') {
         e.preventDefault()
         onClose()
-        requestAnimationFrame(() => {
-          triggerRef?.current?.focus()
-        })
       }
     }
     const panel = panelRef.current
     if (!panel) return
     panel.addEventListener('keydown', handleKeyDown)
     return () => panel.removeEventListener('keydown', handleKeyDown)
-  }, [onClose, triggerRef])
-
-  const handleClose = () => {
-    onClose()
-    requestAnimationFrame(() => {
-      triggerRef?.current?.focus()
-    })
-  }
+  }, [onClose])
 
   const handleBack = () => {
-    if (displayedIndex > 0) {
-      const newIndex = displayedIndex - 1
+    if (index > 0) {
+      const newIndex = index - 1
       setIndex(newIndex)
+      setAnnouncement(`Connection ${newIndex + 1} of ${total}: ${trace.connections[newIndex].title}`)
       if (newIndex === 0) {
         // Back button will become disabled, move focus to heading
         setTimeout(() => headingRef.current?.focus({ preventScroll: true }), 0)
@@ -108,9 +90,10 @@ export function TracePanel({ trace, onClose, triggerRef }: TracePanelProps) {
   }
 
   const handleNext = () => {
-    if (displayedIndex < total - 1) {
-      const newIndex = displayedIndex + 1
+    if (index < total - 1) {
+      const newIndex = index + 1
       setIndex(newIndex)
+      setAnnouncement(`Connection ${newIndex + 1} of ${total}: ${trace.connections[newIndex].title}`)
       if (newIndex === total - 1) {
         // Next button will become disabled, move focus to heading
         setTimeout(() => headingRef.current?.focus({ preventScroll: true }), 0)
@@ -131,20 +114,22 @@ export function TracePanel({ trace, onClose, triggerRef }: TracePanelProps) {
     >
       <div className="trace-header">
         <h4 tabIndex={-1} ref={headingRef} id={`trace-heading-${trace.id}`}>
-          {trace.panelTitle}
+          {trace.panelTitle} — Connection {index + 1} of {total}: {connection.title}
         </h4>
         <span className="trace-label">Correct example — your answers are unchanged</span>
       </div>
       <div className="trace-connection" ref={connectionRef}>
-        <div className="trace-counter" aria-live="polite" aria-atomic="true">
-          Connection {displayedIndex + 1} of {total}: {connection.title}
+        <div className="trace-counter" aria-hidden="true">
+          Connection {index + 1} of {total}: {connection.title}
         </div>
+        <div className="visually-hidden" aria-live="polite" aria-atomic="true">{announcement}</div>
         {connection.excerpts.map((excerpt, i) => (
           <div key={i} className="trace-excerpt">
             <div className="trace-excerpt-label">{excerpt.label}</div>
             <pre className="trace-pre">
               <HighlightedCode content={excerpt.content} highlight={excerpt.highlight} />
             </pre>
+            <div className="trace-highlight-cue">Highlighted: <code>{excerpt.highlight}</code></div>
           </div>
         ))}
         <p className="trace-explanation">{connection.explanation}</p>
@@ -154,7 +139,7 @@ export function TracePanel({ trace, onClose, triggerRef }: TracePanelProps) {
           ref={backButtonRef}
           className="action-button action-button-secondary"
           onClick={handleBack}
-          disabled={displayedIndex === 0}
+          disabled={index === 0}
         >
           Back
         </button>
@@ -162,13 +147,13 @@ export function TracePanel({ trace, onClose, triggerRef }: TracePanelProps) {
           ref={nextButtonRef}
           className="action-button"
           onClick={handleNext}
-          disabled={displayedIndex === total - 1}
+          disabled={index === total - 1}
         >
           Next
         </button>
         <button
           className="action-button action-button-secondary"
-          onClick={handleClose}
+          onClick={onClose}
         >
           Close
         </button>

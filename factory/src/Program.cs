@@ -162,6 +162,10 @@ try
     var findings = "[]";
     string? currentTask = null;
     var planRejected = false;
+    var scopeRejected = false;
+    var scopeRevisions = 0;
+    string? taskPlanSnapshot = null;
+    string attemptBaseline = "";
     async Task<string> Instructions(string machine, bool committed = false) => machine switch
     {
         "planner" => $"""
@@ -170,6 +174,7 @@ try
             {(freezeTasks && File.Exists(plan) ? "The task list is frozen. Do not add, remove or reorder top-level tasks. Only mark finished tasks done. Record anything new as a subtask of the current task." : "")}
             {(committed ? "The current task's validated work has been committed. Mark that task and its resolved subtasks done." : "Inspect the plan without marking unfinished tasks done. Do not perform product work.")}
             {(planRejected ? $"The next task failed its plan check. Revise that task in the plan to resolve these findings: {findings}" : "")}
+            {(scopeRejected ? $"Implementation review found a scope conflict. Resolve these findings by clarifying the current task or assigning deferred work to its existing later task: {findings}. Do not mark the current task done: its work is unvalidated and uncommitted. Preserve its acceptance criteria and real regression fixes." : "")}
             Return "complete": true only when no tasks remain.
             """,
         _ when line.Machines[machine].Role == "extractor" => """
@@ -189,23 +194,39 @@ try
             Validator findings: {findings}
             Record each finding as a subtask of the current task, not as a new top-level task,
             and fix it before asking for validation again.
+            Do not implement suggestions or deferred work. If a required fix contradicts the task scope,
+            return scopeConflict: true with a findings array explaining the conflict instead of expanding scope.
             Return a JSON result describing the work performed.
             Task:
             {currentTask}
             """,
         "doer" => $"""
             Read the seed and the plan. Implement only the first unfinished task.
+            Use this plan snapshot as the task boundary shared with validators:
+            {taskPlanSnapshot}
             Do not mark the task done; the planner does that after the work is committed.
             Validator findings: {findings}
             Record each finding as a subtask of the current task, not as a new top-level task,
             and fix it before asking for validation again.
+            Do not implement suggestions or deferred work. If a required fix contradicts the task scope,
+            return scopeConflict: true with a findings array explaining the conflict instead of expanding scope.
             Return a JSON result describing the work performed.
             """,
         _ when IsValidator(machine) => $"""
             Check only the current task's work below using this lens: {line.Machines[machine].Lens}.
             Report findings only. Change neither the plan nor the product files.
             Return an array "findings" explaining any problems, alongside the routing fields.
-            Current task's work (Git diff against HEAD):
+            Block only for unmet current-task acceptance criteria or regressions introduced by this work.
+            Do not block for unrelated pre-existing problems or work explicitly deferred to later tasks.
+            The baseline can include earlier attempts of this task; their unresolved defects still block.
+            Return only blocking defects in findings; optional improvements belong in a separate suggestions array.
+            If a necessary fix conflicts with the task's explicit scope, return scopeConflict: true,
+            satisfied: false and explain the conflict in findings. Otherwise return scopeConflict: false.
+            Task context shared with the doer (the extracted task, or the plan snapshot whose first unfinished task is current):
+            {currentTask ?? taskPlanSnapshot}
+            Target diff before the latest doer attempt (baseline, not all attributable to this attempt):
+            {attemptBaseline}
+            Full target diff now (compare with the baseline to identify this attempt's changes; retain for regression review):
             {await WorkDiff(target)}
             """,
         _ => "Read the seed and plan and perform your machine's work."
@@ -251,14 +272,25 @@ try
             log.Write($"stopping: the task hit its limit of {maxAttempts} plan checks");
             throw new Exception($"The task hit its limit of {maxAttempts} plan checks.");
         }
+        if (current == "doer")
+        {
+            taskPlanSnapshot ??= File.Exists(plan) ? await File.ReadAllTextAsync(plan) : "Read the first unfinished task from the plan.";
+            attemptBaseline = await WorkDiff(target);
+        }
         if (current == "doer") log.Write($"doer attempt {attempts} of {maxAttempts}");
         if (isExtractor) log.Write($"plan check {planChecks} of {maxAttempts}");
         var result = await Machine(current, branchReports ?? await Instructions(current, committed), branchReports != null);
         branchReports = null;
+        if (current == "planner" && scopeRejected &&
+            result.TryGetProperty("complete", out var prematurelyComplete) && prematurelyComplete.ValueKind == JsonValueKind.True)
+            throw new Exception("Planner cannot finish while a scope conflict leaves work unvalidated.");
         if (current == "planner")
         {
             pendingWork = false;
-            attempts = 0;
+            if (committed || scopeRevisions == 0) attempts = 0;
+            if (committed) scopeRevisions = 0;
+            scopeRejected = false;
+            taskPlanSnapshot = null;
             findings = "[]";
             planRejected = false;
             currentTask = null;
@@ -286,6 +318,23 @@ try
         {
             findings = result.GetProperty("findings").GetRawText();
         }
+        if ((current == "doer" || isValidator) &&
+            result.TryGetProperty("scopeConflict", out var conflict) && conflict.ValueKind == JsonValueKind.True)
+        {
+            if (!result.TryGetProperty("findings", out var conflictFindings) ||
+                conflictFindings.ValueKind != JsonValueKind.Array || conflictFindings.GetArrayLength() == 0)
+                throw new Exception("A scope conflict requires non-empty findings.");
+            if (++scopeRevisions > maxAttempts)
+                throw new Exception($"The task hit its limit of {maxAttempts} scope revisions.");
+            if (!line.Machines.ContainsKey("planner"))
+                throw new Exception("A scope conflict requires a planner to revise the task.");
+            findings = conflictFindings.GetRawText();
+            pendingWork = false; // Never commit rejected work on the way back to the planner.
+            scopeRejected = true;
+            log.Write($"route {current} -> planner (scope conflict; work remains uncommitted)");
+            current = "planner";
+            continue;
+        }
         if (line.FanOuts.TryGetValue(current, out var fanOut))
         {
             using var cancellation = new CancellationTokenSource();
@@ -304,7 +353,7 @@ try
                 if (failure != null) throw failure.Exception!.InnerException!;
                 throw;
             }
-            branchReports = "Branch results:\n" + JsonSerializer.Serialize(
+            branchReports = "Preserve any scopeConflict reported by a branch: return scopeConflict: true, satisfied: false and its findings so the planner can resolve it. Suggestions alone must not block.\nBranch results:\n" + JsonSerializer.Serialize(
                 branches.Select(t => t.Result).ToDictionary(r => r.Name, r => r.Result));
             current = fanOut.Join;
         }

@@ -42,7 +42,7 @@ import {
   requestLines,
   statusCreated,
 } from './fixtures'
-import { traces } from './traces'
+import { traces, type TraceDefinition } from './traces'
 import { TracePanel } from './TracePanel'
 import { buildWalkthroughStages } from './walkthrough'
 import { WalkthroughPanel } from './WalkthroughPanel'
@@ -118,6 +118,42 @@ const SIMULATION_TABS = [
   { id: 'results', label: 'Step results' },
 ]
 
+// Place each trace after the exercise line it illustrates, not after the file.
+// These explicit gap anchors are presentation metadata, not binding resolution.
+const traceAnchors: Record<string, string> = {
+  'lesson2.given': 'feature.patient',
+  'lesson2.when': 'feature.when',
+  'lesson2.then': 'feature.status',
+  'lesson3.model': 'model.date',
+  'lesson4.request': 'request.patient',
+  'lesson5.response': 'response.status',
+}
+
+function traceSections(segments: Segment[], entries: TraceDefinition[]) {
+  const sections: { segments: Segment[]; trace?: TraceDefinition }[] = []
+  let current: Segment[] = []
+  let pending: TraceDefinition | undefined
+  for (const segment of segments) {
+    if (pending && segment.type === 'text') {
+      const newline = segment.content.indexOf('\n')
+      if (newline !== -1) {
+        current.push({ type: 'text', content: segment.content.slice(0, newline + 1) })
+        sections.push({ segments: current, trace: pending })
+        current = []
+        pending = undefined
+        if (segment.content.slice(newline + 1)) {
+          current.push({ type: 'text', content: segment.content.slice(newline + 1) })
+        }
+        continue
+      }
+    }
+    current.push(segment)
+    if (segment.type === 'gap') pending = entries.find((entry) => traceAnchors[entry.id] === segment.gapId)
+  }
+  sections.push({ segments: current, trace: pending })
+  return sections
+}
+
 function CodeBlock({
   file,
   currentLesson,
@@ -125,6 +161,11 @@ function CodeBlock({
   onGapChange,
   invalidGaps,
   inputRefs,
+  traceEntries,
+  openTraceId,
+  onToggleTrace,
+  onCloseTrace,
+  traceTriggerRefs,
 }: {
   file: CodeFile
   currentLesson: LessonData
@@ -132,26 +173,50 @@ function CodeBlock({
   onGapChange?: (gapId: string, value: string) => void
   invalidGaps: Set<string>
   inputRefs: React.MutableRefObject<Map<string, HTMLInputElement>>
+  traceEntries: TraceDefinition[]
+  openTraceId: string | null
+  onToggleTrace: (id: string) => void
+  onCloseTrace: (id: string) => void
+  traceTriggerRefs: React.MutableRefObject<Map<string, HTMLButtonElement>>
 }) {
+  const sections = traceSections(file.segments, traceEntries)
   return (
     <div className="code-panel">
       <div className="code-filename">{file.filename}</div>
-      <pre className="code-pre">
-        <code>
-          {file.segments.map((segment, i) => (
-            <SegmentRenderer
-              key={i}
-              segment={segment}
-              index={i}
-              currentLesson={currentLesson}
-              gapValues={gapValues}
-              onGapChange={onGapChange}
-              invalidGaps={invalidGaps}
-              inputRefs={inputRefs}
-            />
-          ))}
-        </code>
-      </pre>
+      {sections.map((section, sectionIndex) => (
+        <div key={sectionIndex} className="code-section">
+          <pre className="code-pre"><code>
+            {section.segments.map((segment, i) => (
+              <SegmentRenderer
+                key={i}
+                segment={segment}
+                index={i}
+                currentLesson={currentLesson}
+                gapValues={gapValues}
+                onGapChange={onGapChange}
+                invalidGaps={invalidGaps}
+                inputRefs={inputRefs}
+              />
+            ))}
+          </code></pre>
+          {section.trace && (
+            <div className="inline-trace">
+              <span className="inline-trace-label">{section.trace.panelTitle}</span>
+              <button
+                ref={(el) => { if (el) traceTriggerRefs.current.set(section.trace!.id, el) }}
+                className="trace-trigger"
+                aria-label={`Trace this step: ${section.trace.panelTitle}`}
+                aria-expanded={openTraceId === section.trace.id}
+                aria-controls={`trace-panel-${section.trace.id}`}
+                onClick={() => onToggleTrace(section.trace!.id)}
+              >Trace this step</button>
+              {openTraceId === section.trace.id && (
+                <TracePanel key={section.trace.id} trace={section.trace} onClose={() => onCloseTrace(section.trace!.id)} />
+              )}
+            </div>
+          )}
+        </div>
+      ))}
     </div>
   )
 }
@@ -417,11 +482,6 @@ export default function App() {
   const lessonTraces = useMemo(
     () => traces.filter((t) => t.lessonId === currentLesson.id),
     [currentLesson.id],
-  )
-
-  const openTrace = useMemo(
-    () => lessonTraces.find((t) => t.id === openTraceId) ?? null,
-    [lessonTraces, openTraceId],
   )
 
   const canRunSimulation = gates.canRunSimulation
@@ -822,55 +882,22 @@ export default function App() {
         {currentLesson.number === 1 && <FixtureDisplay />}
 
         {currentLesson.codeFile && (
-          <div className="lesson-workspace">
-            <CodeBlock
-              file={currentLesson.codeFile}
-              currentLesson={currentLesson}
-              gapValues={persisted.gapValues}
-              onGapChange={handleGapChange}
-              invalidGaps={invalidGaps}
-              inputRefs={inputRefs}
-            />
-            {lessonTraces.length > 0 && (
-              <div className="trace-sidebar">
-                {lessonTraces.map((trace) => (
-                  <div key={trace.id} className="trace-sidebar-item">
-                    <span className="trace-sidebar-label">{trace.panelTitle}</span>
-                    <button
-                      ref={(el) => {
-                        if (el) traceTriggerRefs.current.set(trace.id, el)
-                      }}
-                      className="trace-trigger"
-                      onClick={() =>
-                        setOpenTraceId((open) => (open === trace.id ? null : trace.id))
-                      }
-                      aria-expanded={openTraceId === trace.id}
-                      aria-controls={`trace-panel-${trace.id}`}
-                    >
-                      {trace.buttonLabel}
-                    </button>
-                    {openTrace?.id === trace.id && (
-          <TracePanel
-            trace={openTrace}
-            onClose={() => {
-              const traceId = openTrace.id
+          <CodeBlock
+            file={currentLesson.codeFile}
+            currentLesson={currentLesson}
+            gapValues={persisted.gapValues}
+            onGapChange={handleGapChange}
+            invalidGaps={invalidGaps}
+            inputRefs={inputRefs}
+            traceEntries={lessonTraces}
+            openTraceId={openTraceId}
+            onToggleTrace={(id) => setOpenTraceId((open) => open === id ? null : id)}
+            onCloseTrace={(id) => {
               setOpenTraceId(null)
-              requestAnimationFrame(() => {
-                traceTriggerRefs.current.get(traceId)?.focus()
-              })
+              requestAnimationFrame(() => traceTriggerRefs.current.get(id)?.focus())
             }}
-            triggerRef={{
-              get current() {
-                return traceTriggerRefs.current.get(openTrace.id) ?? null
-              },
-            } as React.RefObject<HTMLButtonElement | null>}
+            traceTriggerRefs={traceTriggerRefs}
           />
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
         )}
 
         <div className="lesson-checks">

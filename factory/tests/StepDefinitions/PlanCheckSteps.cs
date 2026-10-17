@@ -50,7 +50,7 @@ public sealed partial class FactorySteps
     {
         CopyFactory(); TetrisTarget(); NamedRun("tetris", "careful"); Agent();
         PlanCheckLine("careful", setting); ExistingPlan(false);
-        environment["DOUBLE_VALIDATION"] = "satisfied";
+        environment.TryAdd("DOUBLE_VALIDATION", "satisfied");
         RunNamed("tetris");
     }
 
@@ -162,6 +162,79 @@ public sealed partial class FactorySteps
         finally { Cleanup(); }
     }
 
+    [TestCase(true)]
+    [TestCase(false)]
+    public void ValidatorsReceiveTaskBoundariesAndAttemptBaseline(bool planCheck)
+    {
+        try
+        {
+            CopyFactory(); TetrisTarget(); NamedRun("tetris", "careful"); Agent();
+            PlanCheckLine("careful", planCheck ? "{\"PlanCheck\":{\"Enabled\":true}}" : "{}");
+            ExistingPlan(false);
+            File.WriteAllText(Path.Combine(target, "existing.txt"), "Pre-existing work");
+            environment["DOUBLE_VALIDATION"] = "retry";
+            RunNamed("tetris");
+            Assert.That(result.Code, Is.Zero, result.Error);
+            var first = PromptAt("validator", 0);
+            Assert.That(first, Does.Contain(planCheck ? "Extracted task: alpha" : File.ReadAllText(PlanPath).Replace("true", "false").Trim()));
+            Assert.That(first, Does.Contain("work explicitly deferred to later tasks")
+                .And.Contain("regressions introduced by this work").And.Contain("suggestions array"));
+            var baseline = first.Split("Target diff before the latest doer attempt")[1].Split("Full target diff now")[0];
+            Assert.That(baseline, Does.Contain("Pre-existing work").And.Not.Contain("Work for alpha"));
+            Assert.That(first.Split("Full target diff now")[1], Does.Contain("Work for alpha"));
+            Assert.That(PromptAt("validator", 1).Split("Full target diff now")[0], Does.Contain("Work for alpha"));
+            Assert.That(RoleCalls("doer"), Has.Length.EqualTo(2), "Real blocking defects still retry the doer.");
+        }
+        finally { Cleanup(); }
+    }
+
+    [TestCase(true)]
+    [TestCase(false)]
+    public void ScopeConflictReplansWithoutCommittingRejectedWork(bool planCheck)
+    {
+        try
+        {
+            environment["DOUBLE_SCOPE_CONFLICT"] = "once";
+            PlanCheckRun(planCheck ? "{\"PlanCheck\":{\"Enabled\":true}}" : "{}");
+            Assert.That(result.Code, Is.Zero, result.Error);
+            Assert.That(PromptAt("planner", 1), Does.Contain("Implementation review found a scope conflict")
+                .And.Contain("UI wiring is explicitly deferred")
+                .And.Not.Contain("The current task's validated work has been committed."));
+            Assert.That(RoleCalls("doer"), Has.Length.EqualTo(2));
+            Assert.That(PromptAt("planner", 2), Does.Contain("The current task's validated work has been committed."));
+            Assert.That(Git("rev-list", "--count", baseline + "..HEAD"), Is.EqualTo("1"));
+        }
+        finally { Cleanup(); }
+    }
+
+    [Test]
+    public void DeferredSuggestionsDoNotTriggerAnotherAttempt()
+    {
+        try
+        {
+            environment["DOUBLE_SUGGESTIONS"] = "1";
+            PlanCheckRun("{\"PlanCheck\":{\"Enabled\":true}}");
+            Assert.That(result.Code, Is.Zero, result.Error);
+            Assert.That(RoleCalls("doer"), Has.Length.EqualTo(1));
+            Assert.That(PromptAt("planner", 1), Does.Contain("The current task's validated work has been committed."));
+        }
+        finally { Cleanup(); }
+    }
+
+    [Test]
+    public void ScopeConflictsCannotResetTheAttemptLimit()
+    {
+        try
+        {
+            environment["DOUBLE_SCOPE_CONFLICT"] = "always";
+            PlanCheckRun("{\"PlanCheck\":{\"Enabled\":true}}");
+            ErrorContains("limit of 3 attempts");
+            Assert.That(RoleCalls("doer"), Has.Length.EqualTo(3));
+            NoCommits();
+        }
+        finally { Cleanup(); }
+    }
+
     private string Script(string name, string body)
     {
         var path = Path.Combine(workspace, name);
@@ -175,15 +248,14 @@ public sealed partial class FactorySteps
         CopyFactory(); TetrisTarget(); NamedRun("tetris", "careful"); Agent();
         Directory.CreateDirectory(Path.GetDirectoryName(PlanPath)!);
         File.WriteAllText(PlanPath, "- [ ] alpha\n");
-        foreach (var (machine, body) in new[] { ("planner", plannerBody), ("doer", doerBody) })
-            File.WriteAllText(Path.Combine(target, ".assembly-lines/.machines", machine, "config.json"),
-                JsonSerializer.Serialize(new { harness = Script(machine + ".sh", body) }));
+        plannerHarness = Script("planner.sh", plannerBody.Replace("__PLAN_PATH__", PlanPath));
+        doerHarness = Script("doer.sh", doerBody);
         File.WriteAllText(Path.Combine(repo, "factory", "appsettings.json"), $$"""{ "Guards": {{guards}} }""");
-        environment["DOUBLE_VALIDATION"] = "satisfied";
+        environment.TryAdd("DOUBLE_VALIDATION", "satisfied");
         RunNamed("tetris");
     }
 
-    private string GrowingPlanner => $"printf -- '- [ ] extra\\n' >> \"{PlanPath}\"\necho '{{\"complete\":false}}'";
+    private const string GrowingPlanner = "printf -- '- [ ] extra\\n' >> \"__PLAN_PATH__\"\necho '{\"complete\":false}'";
     private const string ChangingDoer = "date +%s%N > work.txt\necho '{}'";
 
     [Test]

@@ -7,7 +7,7 @@ namespace Factory.Tests;
 public sealed partial class FactorySteps
 {
     private string workspace = null!, repo = null!, target = null!, seed = null!;
-    private string? harness, doerHarness;
+    private string? harness, doerHarness, plannerHarness;
     private bool defaultValidator, capturedConfiguredFiles;
     private int maxAttempts = 3, targetCount;
     private string runName = "tetris", lineName = "careful";
@@ -648,7 +648,7 @@ public sealed partial class FactorySteps
         foreach (var role in new[] { "planner", "doer", "validator" })
             File.WriteAllText(Path.Combine(target, ".assembly-lines", ".machines", role, "config.json"),
                 JsonSerializer.Serialize(new { harness = role == "validator" && defaultValidator ? null
-                    : role == "doer" ? doerHarness ?? harness : harness, lens }));
+                    : role == "doer" ? doerHarness ?? harness : role == "planner" ? plannerHarness ?? harness : harness, lens }));
     }
 
     [Given("this assembly line:")]
@@ -897,5 +897,7 @@ public sealed partial class FactorySteps
     {
         if (workspace != null && Directory.Exists(workspace)) Directory.Delete(workspace, true);
         environment.Clear();
+        plannerHarness = null;
+        doerHarness = null;
     }
 }
