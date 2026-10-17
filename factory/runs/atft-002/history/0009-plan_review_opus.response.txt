@@ -1,0 +1,3 @@
+The task is clear, well scoped, testable through static review, and ready to implement. It names all 16 connection IDs (5 for lesson 2, 3 for lesson 3, 4 each for lessons 4 and 5) across six entries with fixed labels. It lists the source regions, text anchors and fixture values to use, and sets clear limits: no UI, no changes to `src/traces.ts`, no tests and no new region markers. Acceptance is a written static-review checklist with stated evidence points, so nothing here blocks the doer.
+
+{"satisfied": true, "findings": []}

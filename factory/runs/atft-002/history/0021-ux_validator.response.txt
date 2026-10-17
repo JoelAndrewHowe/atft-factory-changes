@@ -1,0 +1,1 @@
+{"satisfied":false,"findings":["In `src/lessonTraces.ts`, the lesson 5 lot comparison shows the same assertion twice, highlighting `actual.LotNumber` and `_request.LotNumber` separately. Highlight the full `Assert.That(actual.LotNumber, Is.EqualTo(_request.LotNumber))` assertion as required by the spec so learners can see the comparison in one place."]}

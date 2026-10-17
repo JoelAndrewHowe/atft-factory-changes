@@ -1,0 +1,1 @@
+{"satisfied":false,"findings":["In src/lessonTraces.ts, lesson3.model.date shows OccurrenceDateTime initialized to an empty string, then shows JSON containing 2026-01-15. Add the canonical Given-body assignment of that date so learners can see where the JSON value comes from."]}

@@ -1,0 +1,1 @@
+{"satisfied":true,"scopeConflict":false,"findings":[],"suggestions":[]}

@@ -1,0 +1,1 @@
+{"task":"- [ ] Define explicit lesson trace content and stable connection IDs for lessons 2–5, using canonical learner examples and fixture values without parsing or executing code."}

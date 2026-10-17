@@ -1,0 +1,1 @@
+{"success":true,"work":"Added the canonical Given-body date assignment to lesson3.model.date and recorded the validator finding as a subtask in the run plan.","staticReviewComplete":true,"readyForValidation":true}

@@ -1,0 +1,1 @@
+{"satisfied":false,"scopeConflict":false,"findings":["atft/src/lessonTraces.ts: `lesson4.request.serialize` is missing a comma after the `excerpts` array. The artifact cannot compile or be imported until this is fixed."]}

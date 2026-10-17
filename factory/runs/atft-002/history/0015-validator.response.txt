@@ -1,0 +1,1 @@
+{"satisfied":false,"findings":["`npm test` fails in `src/traces.test.ts`: the canonical-source check does not recognize the whole-body `learnerRequestBody` excerpt, so `lesson4.request.serialize` is compared against `undefined`. Add that fixture source to the test’s lookup."]}

@@ -1,0 +1,1 @@
+{"success":true,"static_review_passed":true,"build_passed":false,"note":"Added the typed, ordered canonical trace map in atft/src/lessonTraces.ts. Manual review confirmed all 16 required connection IDs, entry-point order, labelled excerpts, and learner fixture values. Build could not run because tsc is not installed."}

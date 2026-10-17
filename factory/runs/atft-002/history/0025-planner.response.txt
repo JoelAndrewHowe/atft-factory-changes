@@ -1,0 +1,2 @@
+Revised the next task in `/workspaces/atft-factory-changes/factory/runs/atft-002/plan.md` to specify the trace artifact, canonical sources and values, stable IDs, lesson-by-lesson content, and static acceptance checks. No task was marked done; no product work was performed.
+{"complete":false}

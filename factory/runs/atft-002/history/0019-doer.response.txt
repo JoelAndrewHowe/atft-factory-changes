@@ -1,0 +1,1 @@
+{"result":true,"artifact":"atft/src/lessonTraces.ts","finding":"Recorded the stale narrow-viewport assertion as a subtask and updated it from four Given connections to two.","validation":"Targeted Playwright test, npm test, and npm run build passed.","committed":false}

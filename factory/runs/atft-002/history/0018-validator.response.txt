@@ -1,0 +1,1 @@
+{"satisfied":false,"findings":["e2e/tutorial.spec.ts:369–392 still expects four Given connections, but lessonTraces.ts now defines two. The narrow-viewport Playwright test fails at its first `Connection 1 of 4` assertion, leaving that coverage blocked."]}

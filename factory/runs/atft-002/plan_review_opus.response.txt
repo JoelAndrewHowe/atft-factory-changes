@@ -1,0 +1,3 @@
+The task is clear, well scoped, testable and ready to implement. It names the source files, all six entry points, where panels go and where they must not appear. It also spells out the excerpt and highlight rules, the keyboard, focus and announcement behaviour, and the state that must not change. The four acceptance scenarios give concrete checks. It is large, but it covers one feature, and it leaves automated tests and the final walkthrough to their own tasks. Your prompt listed no routing field names, so `satisfied` is the only boolean below.
+
+{"satisfied": true, "findings": []}

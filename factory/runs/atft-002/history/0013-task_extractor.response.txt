@@ -1,0 +1,1 @@
+{"task":"- [ ] Implement optional inline lesson trace panels with labelled excerpts, non-color-only highlights, accessible navigation/focus, and no effect on answers or progress."}
